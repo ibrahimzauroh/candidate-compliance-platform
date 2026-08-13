@@ -16,7 +16,9 @@ A compliance document is the logical record attached to a candidate. Its version
 
 ## Security boundaries
 
-Authentication, validated tenant context, operation-specific authorisation, and PostgreSQL row-level security are not implemented yet. They must be added before tenant-owned records are exposed through business endpoints.
+Authentication establishes only the current platform user identity. Login verifies the seeded bcrypt password, issues a short-lived JWT containing the user ID as its subject, and protected requests resolve the current user from PostgreSQL before attaching a tenant-neutral authenticated actor.
+
+Validated tenant context, operation-specific authorisation, and PostgreSQL row-level security remain separate, unimplemented layers. Authentication does not select a tenant or place memberships, roles, or permissions in the token. Those controls must be added before tenant-owned records are exposed through business endpoints.
 
 ## Evolution
 

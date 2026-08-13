@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository is the foundation for a secure, multi-tenant candidate compliance module. The current phase contains the workspace, local infrastructure, core relational tenant model, deterministic development seed, API health endpoint, and minimal web shell. Business APIs, authentication, audit, verification, AI, and frontend workflows are intentionally not implemented yet.
+This repository is the foundation for a secure, multi-tenant candidate compliance module. The current phase contains the workspace, local infrastructure, core relational tenant model, deterministic development seed, platform authentication, API health endpoint, and minimal web shell. Tenant context, business APIs, authorisation, audit, verification, AI, and frontend workflows are intentionally not implemented yet.
 
 ## Architecture summary
 
@@ -77,7 +77,28 @@ The seed creates these future login identities:
 - `shared@iza.com`
 - `khaleel.admin@iza.com`
 
-All seeded users use the development-only password `ComplianceDemo123`. Authentication is not implemented yet; a later phase will consume these identities.
+All seeded users use the development-only password `ComplianceDemo123`.
+
+## Authentication
+
+Set `JWT_SECRET` and `JWT_EXPIRES_IN` in the local `.env` file. The example values are for local development only; production must use a securely managed secret of at least 32 characters.
+
+Log in with a seeded platform identity:
+
+```bash
+curl -X POST http://localhost:4000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@iza.com","password":"ComplianceDemo123"}'
+```
+
+Pass the returned access token as a Bearer token to resolve the current platform identity:
+
+```bash
+curl http://localhost:4000/api/v1/auth/me \
+  -H "Authorization: Bearer <access-token>"
+```
+
+Authentication does not select a tenant or grant tenant permissions. Tenant context and operation-specific authorisation remain separate, unimplemented layers.
 
 ## Running API
 
@@ -115,11 +136,11 @@ An OpenAPI 3 document will be introduced with the first versioned business endpo
 
 ## Demo users
 
-The local seeded identities and development-only password are documented under Seed data. Login does not work until authentication is implemented.
+The local seeded identities and development-only password are documented under Seed data. They work with `POST /api/v1/auth/login` after the database is seeded and the API is running.
 
 ## Security notes
 
-No production secrets are stored in the repository. Tenant isolation, PostgreSQL row-level security, operation-specific authorisation, and audit controls remain required before tenant-owned data is introduced.
+No production secrets are stored in the repository. The checked-in JWT value is explicitly local-only. Tenant isolation, PostgreSQL row-level security, operation-specific authorisation, and audit controls remain required before tenant-owned data is exposed.
 
 ## AI assistant usage
 
@@ -127,6 +148,6 @@ AI was used for implementation acceleration, refactoring suggestions, test gener
 
 ## Known limitations
 
-- Authentication and authorisation are not implemented.
+- Tenant context and authorisation are not implemented.
 - No business endpoints or frontend business screens are present.
 - Production deployment and observability are outside this foundation phase.
