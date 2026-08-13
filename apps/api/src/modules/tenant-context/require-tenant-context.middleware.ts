@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import { TenantRole, type PrismaClient } from '@prisma/client';
 import type { RequestHandler } from 'express';
 import { z } from 'zod';
 
@@ -10,6 +10,13 @@ import {
 } from '../../infrastructure/http/problem-details.js';
 
 const tenantIdSchema = z.string().trim().pipe(z.uuid());
+
+interface ValidatedMembershipRow {
+  membership_id: string;
+  tenant_id: string;
+  user_id: string;
+  role: TenantRole;
+}
 
 export function createRequireTenantContextMiddleware(
   prisma: PrismaClient,
@@ -36,30 +43,28 @@ export function createRequireTenantContextMiddleware(
       return;
     }
 
-    const membership = await prisma.tenantMembership.findUnique({
-      where: {
-        tenantId_userId: {
-          tenantId: parsedTenantId.data,
-          userId: actor.userId,
-        },
-      },
-      select: {
-        id: true,
-        tenantId: true,
-        userId: true,
-        role: true,
-      },
-    });
+    const memberships = await prisma.$queryRaw<ValidatedMembershipRow[]>`
+      SELECT membership_id, tenant_id, user_id, role
+      FROM public.validate_tenant_membership(
+        ${actor.userId}::uuid,
+        ${parsedTenantId.data}::uuid
+      )
+    `;
+    const membership = memberships[0];
 
-    if (!membership) {
+    if (
+      !membership ||
+      membership.user_id !== actor.userId ||
+      membership.tenant_id !== parsedTenantId.data
+    ) {
       next(tenantContextForbiddenProblem());
       return;
     }
 
     request.tenantContext = {
-      tenantId: membership.tenantId,
-      userId: membership.userId,
-      membershipId: membership.id,
+      tenantId: membership.tenant_id,
+      userId: membership.user_id,
+      membershipId: membership.membership_id,
       role: membership.role,
     };
     next();

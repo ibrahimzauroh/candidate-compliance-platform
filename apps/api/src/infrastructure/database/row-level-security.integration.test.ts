@@ -1,0 +1,664 @@
+import type { TenantContext } from '@candidate-compliance/contracts';
+import { PrismaClient, TenantRole } from '@prisma/client';
+import request from 'supertest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { createApp } from '../../app.js';
+import { loadEnvironment } from '../../config/load-environment.js';
+import { withTenantTransaction } from './with-tenant-transaction.js';
+
+loadEnvironment();
+
+const runtimePrisma = new PrismaClient();
+const adminPrisma = new PrismaClient({
+  datasourceUrl: process.env.DIRECT_DATABASE_URL,
+});
+
+const jwtConfig = {
+  secret: 'row-level-security-integration-test-secret',
+  expiresIn: '15m' as const,
+};
+const app = createApp({ prisma: runtimePrisma, jwtConfig });
+
+const ids = {
+  tenants: {
+    zauroh: '10000000-0000-4000-8000-000000000001',
+    khaleel: '10000000-0000-4000-8000-000000000002',
+    nonexistent: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+  },
+  users: {
+    admin: '20000000-0000-4000-8000-000000000001',
+    shared: '20000000-0000-4000-8000-000000000004',
+    nonexistent: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+  },
+  memberships: {
+    zaurohAdmin: '30000000-0000-4000-8000-000000000001',
+    zaurohShared: '30000000-0000-4000-8000-000000000004',
+    khaleelShared: '30000000-0000-4000-8000-000000000005',
+  },
+  candidates: {
+    zaurohAlex: '40000000-0000-4000-8000-000000000001',
+    khaleelAlex: '40000000-0000-4000-8000-000000000003',
+    rejectedInsert: '70000000-0000-4000-8000-000000000001',
+  },
+} as const;
+
+const zaurohContext: TenantContext = {
+  tenantId: ids.tenants.zauroh,
+  userId: ids.users.shared,
+  membershipId: ids.memberships.zaurohShared,
+  role: TenantRole.VIEWER,
+};
+
+const khaleelContext: TenantContext = {
+  tenantId: ids.tenants.khaleel,
+  userId: ids.users.shared,
+  membershipId: ids.memberships.khaleelShared,
+  role: TenantRole.RECRUITER,
+};
+
+interface MembershipFunctionRow {
+  membership_id: string;
+  tenant_id: string;
+  user_id: string;
+  role: TenantRole;
+}
+
+async function validateMembership(
+  userId: string | null,
+  tenantId: string | null,
+): Promise<MembershipFunctionRow[]> {
+  return runtimePrisma.$queryRaw<MembershipFunctionRow[]>`
+    SELECT membership_id, tenant_id, user_id, role
+    FROM public.validate_tenant_membership(
+      ${userId}::uuid,
+      ${tenantId}::uuid
+    )
+  `;
+}
+
+beforeAll(async () => {
+  const seedCounts = await adminPrisma.$queryRaw<
+    Array<{ candidates: bigint; memberships: bigint; documents: bigint }>
+  >`
+    SELECT
+      (SELECT count(*) FROM public.candidates) AS candidates,
+      (SELECT count(*) FROM public.tenant_memberships) AS memberships,
+      (SELECT count(*) FROM public.compliance_documents) AS documents
+  `;
+
+  if (
+    seedCounts[0]?.candidates !== 4n ||
+    seedCounts[0]?.memberships !== 6n ||
+    seedCounts[0]?.documents !== 2n
+  ) {
+    throw new Error('Run pnpm db:seed before RLS integration tests.');
+  }
+});
+
+afterAll(async () => {
+  await adminPrisma.candidate.deleteMany({
+    where: { id: ids.candidates.rejectedInsert },
+  });
+  await Promise.all([runtimePrisma.$disconnect(), adminPrisma.$disconnect()]);
+});
+
+describe('restricted runtime database role', () => {
+  it('is a non-owner, non-superuser role without BYPASSRLS', async () => {
+    const roles = await adminPrisma.$queryRaw<
+      Array<{
+        rolname: string;
+        rolsuper: boolean;
+        rolbypassrls: boolean;
+        rolcreatedb: boolean;
+        rolcreaterole: boolean;
+      }>
+    >`
+      SELECT rolname, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole
+      FROM pg_catalog.pg_roles
+      WHERE rolname = 'candidate_compliance_app'
+    `;
+    const tables = await adminPrisma.$queryRaw<
+      Array<{ relname: string; owner: string }>
+    >`
+      SELECT class.relname, pg_catalog.pg_get_userbyid(class.relowner) AS owner
+      FROM pg_catalog.pg_class AS class
+      JOIN pg_catalog.pg_namespace AS namespace
+        ON namespace.oid = class.relnamespace
+      WHERE namespace.nspname = 'public'
+        AND class.relname IN (
+          'tenant_memberships',
+          'candidates',
+          'compliance_documents',
+          'compliance_document_versions'
+        )
+      ORDER BY class.relname
+    `;
+
+    expect(roles).toEqual([
+      {
+        rolname: 'candidate_compliance_app',
+        rolsuper: false,
+        rolbypassrls: false,
+        rolcreatedb: false,
+        rolcreaterole: false,
+      },
+    ]);
+    expect(tables).toHaveLength(4);
+    expect(
+      tables.every((table) => table.owner === 'candidate_compliance'),
+    ).toBe(true);
+  });
+
+  it('connects through Prisma as candidate_compliance_app', async () => {
+    const identity = await runtimePrisma.$queryRaw<
+      Array<{ current_user: string }>
+    >`SELECT current_user`;
+
+    expect(identity).toEqual([{ current_user: 'candidate_compliance_app' }]);
+  });
+
+  it('has only the required table privileges', async () => {
+    const grants = await adminPrisma.$queryRaw<
+      Array<{ table_name: string; privilege_type: string }>
+    >`
+      SELECT table_name, privilege_type
+      FROM information_schema.role_table_grants
+      WHERE grantee = 'candidate_compliance_app'
+        AND table_schema = 'public'
+      ORDER BY table_name, privilege_type
+    `;
+
+    expect(grants).toEqual([
+      { table_name: 'candidates', privilege_type: 'INSERT' },
+      { table_name: 'candidates', privilege_type: 'SELECT' },
+      { table_name: 'candidates', privilege_type: 'UPDATE' },
+      {
+        table_name: 'compliance_document_versions',
+        privilege_type: 'SELECT',
+      },
+      { table_name: 'compliance_documents', privilege_type: 'SELECT' },
+      { table_name: 'tenant_memberships', privilege_type: 'SELECT' },
+      { table_name: 'users', privilege_type: 'SELECT' },
+    ]);
+  });
+});
+
+describe('validate_tenant_membership bootstrap function', () => {
+  it('is SECURITY DEFINER, admin-owned, search-path restricted, and narrowly executable', async () => {
+    const functions = await adminPrisma.$queryRaw<
+      Array<{
+        schema_name: string;
+        function_name: string;
+        owner: string;
+        security_definer: boolean;
+        argument_types: string;
+        return_shape: string;
+        settings: string[];
+        public_execute: boolean;
+        runtime_execute: boolean;
+      }>
+    >`
+      SELECT
+        namespace.nspname AS schema_name,
+        procedure.proname AS function_name,
+        pg_catalog.pg_get_userbyid(procedure.proowner) AS owner,
+        procedure.prosecdef AS security_definer,
+        pg_catalog.pg_get_function_identity_arguments(procedure.oid)
+          AS argument_types,
+        pg_catalog.pg_get_function_result(procedure.oid) AS return_shape,
+        procedure.proconfig AS settings,
+        EXISTS (
+          SELECT 1
+          FROM pg_catalog.aclexplode(
+            COALESCE(
+              procedure.proacl,
+              pg_catalog.acldefault('f', procedure.proowner)
+            )
+          ) AS acl
+          WHERE acl.grantee = 0
+            AND acl.privilege_type = 'EXECUTE'
+        ) AS public_execute,
+        pg_catalog.has_function_privilege(
+          'candidate_compliance_app',
+          procedure.oid,
+          'EXECUTE'
+        ) AS runtime_execute
+      FROM pg_catalog.pg_proc AS procedure
+      JOIN pg_catalog.pg_namespace AS namespace
+        ON namespace.oid = procedure.pronamespace
+      WHERE namespace.nspname = 'public'
+        AND procedure.proname = 'validate_tenant_membership'
+    `;
+
+    expect(functions).toHaveLength(1);
+    expect(functions[0]).toMatchObject({
+      schema_name: 'public',
+      function_name: 'validate_tenant_membership',
+      owner: 'candidate_compliance',
+      security_definer: true,
+      public_execute: false,
+      runtime_execute: true,
+    });
+    expect(functions[0]?.argument_types).toBe(
+      'authenticated_user_id uuid, requested_tenant_id uuid',
+    );
+    expect(functions[0]?.return_shape).toBe(
+      'TABLE(membership_id uuid, tenant_id uuid, user_id uuid, role tenant_role)',
+    );
+    expect(functions[0]?.settings).toEqual(['search_path=pg_catalog, pg_temp']);
+  });
+
+  it('returns one exact matching membership for valid pairs', async () => {
+    await expect(
+      validateMembership(ids.users.shared, ids.tenants.zauroh),
+    ).resolves.toEqual([
+      {
+        membership_id: ids.memberships.zaurohShared,
+        tenant_id: ids.tenants.zauroh,
+        user_id: ids.users.shared,
+        role: TenantRole.VIEWER,
+      },
+    ]);
+    await expect(
+      validateMembership(ids.users.shared, ids.tenants.khaleel),
+    ).resolves.toEqual([
+      {
+        membership_id: ids.memberships.khaleelShared,
+        tenant_id: ids.tenants.khaleel,
+        user_id: ids.users.shared,
+        role: TenantRole.RECRUITER,
+      },
+    ]);
+  });
+
+  it('returns no row for a non-member or nonexistent identity', async () => {
+    await expect(
+      validateMembership(ids.users.admin, ids.tenants.khaleel),
+    ).resolves.toEqual([]);
+    await expect(
+      validateMembership(ids.users.nonexistent, ids.tenants.zauroh),
+    ).resolves.toEqual([]);
+    await expect(
+      validateMembership(ids.users.admin, ids.tenants.nonexistent),
+    ).resolves.toEqual([]);
+  });
+
+  it('cannot broaden the query through null or malformed inputs', async () => {
+    await expect(validateMembership(null, ids.tenants.zauroh)).resolves.toEqual(
+      [],
+    );
+    await expect(validateMembership(ids.users.shared, null)).resolves.toEqual(
+      [],
+    );
+    await expect(
+      runtimePrisma.$queryRaw`
+        SELECT *
+        FROM public.validate_tenant_membership(
+          ${'not-a-uuid'}::uuid,
+          ${ids.tenants.zauroh}::uuid
+        )
+      `,
+    ).rejects.toThrow();
+  });
+
+  it('returns only membership fields and cannot list all memberships', async () => {
+    const result = await validateMembership(
+      ids.users.shared,
+      ids.tenants.zauroh,
+    );
+
+    expect(Object.keys(result[0] ?? {}).sort()).toEqual([
+      'membership_id',
+      'role',
+      'tenant_id',
+      'user_id',
+    ]);
+    await expect(
+      runtimePrisma.$queryRaw`
+        SELECT * FROM public.validate_tenant_membership()
+      `,
+    ).rejects.toThrow();
+  });
+
+  it('does not alter transaction or session tenant state', async () => {
+    const settings = await runtimePrisma.$transaction(async (transaction) => {
+      const before = await transaction.$queryRaw<
+        Array<{ tenant: string | null }>
+      >`
+        SELECT NULLIF(
+          pg_catalog.current_setting('app.current_tenant_id', true),
+          ''
+        ) AS tenant
+      `;
+      await transaction.$queryRaw`
+        SELECT *
+        FROM public.validate_tenant_membership(
+          ${ids.users.shared}::uuid,
+          ${ids.tenants.zauroh}::uuid
+        )
+      `;
+      const after = await transaction.$queryRaw<
+        Array<{ tenant: string | null }>
+      >`
+        SELECT NULLIF(
+          pg_catalog.current_setting('app.current_tenant_id', true),
+          ''
+        ) AS tenant
+      `;
+
+      return { before, after };
+    });
+
+    expect(settings).toEqual({
+      before: [{ tenant: null }],
+      after: [{ tenant: null }],
+    });
+  });
+
+  it('does not bypass ordinary membership RLS', async () => {
+    await expect(runtimePrisma.tenantMembership.findMany()).resolves.toEqual(
+      [],
+    );
+
+    const zaurohMemberships = await withTenantTransaction(
+      runtimePrisma,
+      zaurohContext,
+      (transaction) => transaction.tenantMembership.findMany(),
+    );
+
+    expect(zaurohMemberships).toHaveLength(4);
+    expect(
+      zaurohMemberships.every(
+        (membership) => membership.tenantId === ids.tenants.zauroh,
+      ),
+    ).toBe(true);
+  });
+});
+
+describe('forced tenant row-level security', () => {
+  it('is enabled and forced with USING and WITH CHECK policies on every tenant table', async () => {
+    const tables = await adminPrisma.$queryRaw<
+      Array<{
+        relname: string;
+        relrowsecurity: boolean;
+        relforcerowsecurity: boolean;
+      }>
+    >`
+      SELECT class.relname, class.relrowsecurity, class.relforcerowsecurity
+      FROM pg_catalog.pg_class AS class
+      JOIN pg_catalog.pg_namespace AS namespace
+        ON namespace.oid = class.relnamespace
+      WHERE namespace.nspname = 'public'
+        AND class.relname IN (
+          'tenant_memberships',
+          'candidates',
+          'compliance_documents',
+          'compliance_document_versions'
+        )
+      ORDER BY class.relname
+    `;
+    const policies = await adminPrisma.$queryRaw<
+      Array<{
+        tablename: string;
+        policyname: string;
+        cmd: string;
+        qual: string;
+        with_check: string;
+      }>
+    >`
+      SELECT tablename, policyname, cmd, qual, with_check
+      FROM pg_catalog.pg_policies
+      WHERE schemaname = 'public'
+      ORDER BY tablename, policyname
+    `;
+
+    expect(tables).toHaveLength(4);
+    expect(
+      tables.every(
+        (table) => table.relrowsecurity && table.relforcerowsecurity,
+      ),
+    ).toBe(true);
+    expect(policies).toHaveLength(4);
+    expect(policies.every((policy) => policy.cmd === 'ALL')).toBe(true);
+    expect(
+      policies.every(
+        (policy) =>
+          policy.qual.includes('app.current_tenant_id') &&
+          policy.with_check.includes('app.current_tenant_id'),
+      ),
+    ).toBe(true);
+  });
+
+  it('fails closed without tenant context', async () => {
+    await expect(runtimePrisma.candidate.findMany()).resolves.toEqual([]);
+    await expect(runtimePrisma.complianceDocument.findMany()).resolves.toEqual(
+      [],
+    );
+    await expect(
+      runtimePrisma.complianceDocumentVersion.findMany(),
+    ).resolves.toEqual([]);
+    await expect(runtimePrisma.tenantMembership.findMany()).resolves.toEqual(
+      [],
+    );
+  });
+
+  it('limits unscoped candidate SELECT queries to the active tenant', async () => {
+    const zaurohCandidates = await withTenantTransaction(
+      runtimePrisma,
+      zaurohContext,
+      (transaction) =>
+        transaction.candidate.findMany({ orderBy: { id: 'asc' } }),
+    );
+    const khaleelCandidates = await withTenantTransaction(
+      runtimePrisma,
+      khaleelContext,
+      (transaction) =>
+        transaction.candidate.findMany({ orderBy: { id: 'asc' } }),
+    );
+
+    expect(zaurohCandidates).toHaveLength(2);
+    expect(
+      zaurohCandidates.every(
+        (candidate) => candidate.tenantId === ids.tenants.zauroh,
+      ),
+    ).toBe(true);
+    expect(khaleelCandidates).toHaveLength(2);
+    expect(
+      khaleelCandidates.every(
+        (candidate) => candidate.tenantId === ids.tenants.khaleel,
+      ),
+    ).toBe(true);
+  });
+
+  it('hides known cross-tenant candidate IDs in both directions', async () => {
+    const [khaleelFromZauroh, zaurohFromKhaleel] = await Promise.all([
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.candidate.findUnique({
+          where: { id: ids.candidates.khaleelAlex },
+        }),
+      ),
+      withTenantTransaction(runtimePrisma, khaleelContext, (transaction) =>
+        transaction.candidate.findUnique({
+          where: { id: ids.candidates.zaurohAlex },
+        }),
+      ),
+    ]);
+
+    expect(khaleelFromZauroh).toBeNull();
+    expect(zaurohFromKhaleel).toBeNull();
+  });
+
+  it('rejects a cross-tenant INSERT through WITH CHECK', async () => {
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.candidate.create({
+          data: {
+            id: ids.candidates.rejectedInsert,
+            tenantId: ids.tenants.khaleel,
+            fullName: 'Rejected Cross-Tenant Candidate',
+            email: 'rejected.cross.tenant@iza.com',
+            roleAppliedFor: 'Security Test',
+          },
+        }),
+      ),
+    ).rejects.toThrow();
+
+    await expect(
+      adminPrisma.candidate.findUnique({
+        where: { id: ids.candidates.rejectedInsert },
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it('rejects moving an existing row to another tenant', async () => {
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.candidate.update({
+          where: { id: ids.candidates.zaurohAlex },
+          data: { tenantId: ids.tenants.khaleel },
+        }),
+      ),
+    ).rejects.toThrow();
+
+    const candidate = await adminPrisma.candidate.findUniqueOrThrow({
+      where: { id: ids.candidates.zaurohAlex },
+    });
+    expect(candidate.tenantId).toBe(ids.tenants.zauroh);
+  });
+
+  it('isolates memberships, documents, and versions by active tenant', async () => {
+    const [zauroh, khaleel] = await Promise.all([
+      withTenantTransaction(
+        runtimePrisma,
+        zaurohContext,
+        async (transaction) => ({
+          memberships: await transaction.tenantMembership.findMany(),
+          documents: await transaction.complianceDocument.findMany(),
+          versions: await transaction.complianceDocumentVersion.findMany(),
+        }),
+      ),
+      withTenantTransaction(
+        runtimePrisma,
+        khaleelContext,
+        async (transaction) => ({
+          memberships: await transaction.tenantMembership.findMany(),
+          documents: await transaction.complianceDocument.findMany(),
+          versions: await transaction.complianceDocumentVersion.findMany(),
+        }),
+      ),
+    ]);
+
+    expect(zauroh.memberships).toHaveLength(4);
+    expect(zauroh.documents).toHaveLength(1);
+    expect(zauroh.versions).toHaveLength(1);
+    expect(
+      [...zauroh.memberships, ...zauroh.documents, ...zauroh.versions].every(
+        (row) => row.tenantId === ids.tenants.zauroh,
+      ),
+    ).toBe(true);
+    expect(khaleel.memberships).toHaveLength(2);
+    expect(khaleel.documents).toHaveLength(1);
+    expect(khaleel.versions).toHaveLength(1);
+    expect(
+      [...khaleel.memberships, ...khaleel.documents, ...khaleel.versions].every(
+        (row) => row.tenantId === ids.tenants.khaleel,
+      ),
+    ).toBe(true);
+  });
+});
+
+describe('transaction-local tenant setting', () => {
+  it('does not leak between sequential transactions', async () => {
+    const zaurohCount = await withTenantTransaction(
+      runtimePrisma,
+      zaurohContext,
+      (transaction) => transaction.candidate.count(),
+    );
+    const withoutContext = await runtimePrisma.candidate.count();
+    const khaleelCount = await withTenantTransaction(
+      runtimePrisma,
+      khaleelContext,
+      (transaction) => transaction.candidate.count(),
+    );
+
+    expect(zaurohCount).toBe(2);
+    expect(withoutContext).toBe(0);
+    expect(khaleelCount).toBe(2);
+  });
+
+  it('does not leak after transaction rollback', async () => {
+    await expect(
+      withTenantTransaction(
+        runtimePrisma,
+        zaurohContext,
+        async (transaction) => {
+          expect(await transaction.candidate.count()).toBe(2);
+          throw new Error('intentional rollback');
+        },
+      ),
+    ).rejects.toThrow('intentional rollback');
+
+    await expect(runtimePrisma.candidate.count()).resolves.toBe(0);
+  });
+
+  it('isolates concurrent transactions with different tenants', async () => {
+    const [zaurohTenantIds, khaleelTenantIds] = await Promise.all([
+      withTenantTransaction(
+        runtimePrisma,
+        zaurohContext,
+        async (transaction) => {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          const rows = await transaction.candidate.findMany();
+          return rows.map((row) => row.tenantId);
+        },
+      ),
+      withTenantTransaction(
+        runtimePrisma,
+        khaleelContext,
+        async (transaction) => {
+          const rows = await transaction.candidate.findMany();
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          return rows.map((row) => row.tenantId);
+        },
+      ),
+    ]);
+
+    expect(zaurohTenantIds).toEqual([ids.tenants.zauroh, ids.tenants.zauroh]);
+    expect(khaleelTenantIds).toEqual([
+      ids.tenants.khaleel,
+      ids.tenants.khaleel,
+    ]);
+  });
+});
+
+describe('authentication and tenant-context regressions', () => {
+  it('authenticates through the runtime role using the global users table', async () => {
+    const login = await request(app).post('/api/v1/auth/login').send({
+      email: 'admin@iza.com',
+      password: 'ComplianceDemo123',
+    });
+
+    expect(login.status).toBe(200);
+    expect(login.body.user.email).toBe('admin@iza.com');
+  });
+
+  it('validates membership through the bootstrap function and establishes context', async () => {
+    const login = await request(app).post('/api/v1/auth/login').send({
+      email: 'shared@iza.com',
+      password: 'ComplianceDemo123',
+    });
+    const context = await request(app)
+      .get('/api/v1/context')
+      .set('Authorization', `Bearer ${login.body.accessToken}`)
+      .set('X-Tenant-Id', ids.tenants.khaleel);
+
+    expect(context.status).toBe(200);
+    expect(context.body).toEqual({
+      tenantId: ids.tenants.khaleel,
+      userId: ids.users.shared,
+      membershipId: ids.memberships.khaleelShared,
+      role: TenantRole.RECRUITER,
+    });
+  });
+});

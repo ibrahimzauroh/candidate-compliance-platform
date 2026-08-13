@@ -20,7 +20,11 @@ Authentication establishes only the current platform user identity. Login verifi
 
 Authentication does not select a tenant or place memberships, roles, or permissions in the token. A tenant-scoped request supplies `X-Tenant-Id` as untrusted input. After authentication, the API validates that exact tenant ID against the current user's PostgreSQL membership and attaches a request-level tenant context containing only the selected membership ID and role.
 
-Operation-specific authorisation remains a separate later layer; membership alone does not permit every operation. PostgreSQL row-level security is also not implemented yet, so database defence in depth must be added before tenant-owned records are exposed through business endpoints.
+Tenant memberships are themselves protected by RLS, creating a bootstrap boundary before normal tenant context exists. A narrowly scoped, admin-owned `SECURITY DEFINER` function accepts one authenticated user ID and one requested tenant ID and returns only that exact membership. Its fixed search path, static query, revoked public execution, and runtime-only execute grant prevent it from acting as a general RLS bypass.
+
+The schema-owner connection applies migrations and seeds, while the API uses a separate non-owner, non-superuser runtime role without `BYPASSRLS`. Tenant-owned work runs through `withTenantTransaction`, which sets `app.current_tenant_id` transaction-locally before the callback receives its transaction-bound Prisma client. Forced PostgreSQL RLS protects memberships, candidates, documents, and document versions when application query scoping is accidentally omitted. Explicit application tenant scope and RLS remain complementary defence-in-depth controls.
+
+Global user authentication remains outside tenant RLS. Operation-specific authorisation remains a separate later layer; membership and row visibility alone do not permit every operation.
 
 ## Evolution
 

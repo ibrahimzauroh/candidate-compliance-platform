@@ -83,19 +83,31 @@ function contextRequest(token?: string, tenantId?: string) {
 }
 
 beforeAll(async () => {
-  const memberships = await prisma.tenantMembership.count({
-    where: {
-      id: {
-        in: [
-          ids.memberships.zaurohAdmin,
-          ids.memberships.zaurohShared,
-          ids.memberships.khaleelShared,
-        ],
-      },
-    },
-  });
+  const memberships = await Promise.all([
+    prisma.$queryRaw<Array<{ membership_id: string }>>`
+      SELECT membership_id
+      FROM public.validate_tenant_membership(
+        ${ids.users.admin}::uuid,
+        ${ids.tenants.zauroh}::uuid
+      )
+    `,
+    prisma.$queryRaw<Array<{ membership_id: string }>>`
+      SELECT membership_id
+      FROM public.validate_tenant_membership(
+        ${ids.users.shared}::uuid,
+        ${ids.tenants.zauroh}::uuid
+      )
+    `,
+    prisma.$queryRaw<Array<{ membership_id: string }>>`
+      SELECT membership_id
+      FROM public.validate_tenant_membership(
+        ${ids.users.shared}::uuid,
+        ${ids.tenants.khaleel}::uuid
+      )
+    `,
+  ]);
 
-  if (memberships !== 3) {
+  if (memberships.some((membership) => membership.length !== 1)) {
     throw new Error(
       'Run pnpm db:seed before tenant-context integration tests.',
     );

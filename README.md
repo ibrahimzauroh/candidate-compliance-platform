@@ -36,7 +36,7 @@ On Windows PowerShell, use `Copy-Item .env.example .env` instead of `cp`.
 
 ## Environment variables
 
-The supported local variables are documented in `.env.example`. The checked-in values are development-only examples. Do not commit `.env` files.
+The supported local variables are documented in `.env.example`. `DATABASE_URL` uses the restricted runtime role, while `DIRECT_DATABASE_URL` uses the local schema-owner role for migrations and seeding. The checked-in credentials are development-only examples. Do not commit `.env` files.
 
 ## Database setup
 
@@ -49,7 +49,7 @@ pnpm db:seed
 pnpm db:check
 ```
 
-The Compose service uses a neutral database and local-only credentials. No paid service is required.
+The Compose service uses a neutral database and local-only credentials. The RLS migration provisions the restricted `candidate_compliance_app` role; the API and security tests use it automatically through `DATABASE_URL`. No paid service is required.
 
 ## Migrations
 
@@ -112,7 +112,7 @@ curl http://localhost:4000/api/v1/context \
   -H "X-Tenant-Id: 10000000-0000-4000-8000-000000000001"
 ```
 
-The resulting role belongs only to the selected membership. It does not grant operation-specific permissions, which remain a later security layer.
+The resulting role belongs only to the selected membership. Tenant-owned database work must use `withTenantTransaction`, which applies the validated tenant ID transaction-locally before PostgreSQL RLS evaluates queries. It does not grant operation-specific permissions, which remain a later security layer.
 
 ## Running API
 
@@ -154,7 +154,7 @@ The local seeded identities and development-only password are documented under S
 
 ## Security notes
 
-No production secrets are stored in the repository. The checked-in JWT value is explicitly local-only. Tenant membership is validated at the application boundary, but PostgreSQL row-level security, operation-specific authorisation, and audit controls remain required before tenant-owned data is exposed.
+No production secrets are stored in the repository. The checked-in database and JWT values are explicitly local-only. Tenant-owned tables are protected by PostgreSQL row-level security for the restricted runtime role. Operation-specific authorisation and audit controls remain required before tenant-owned data is exposed.
 
 ## AI assistant usage
 
@@ -162,6 +162,6 @@ AI was used for implementation acceleration, refactoring suggestions, test gener
 
 ## Known limitations
 
-- Operation-specific authorisation and PostgreSQL row-level security are not implemented.
+- Operation-specific authorisation is not implemented.
 - No business endpoints or frontend business screens are present.
 - Production deployment and observability are outside this foundation phase.

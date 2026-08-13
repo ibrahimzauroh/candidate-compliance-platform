@@ -7,8 +7,10 @@ loadEnvironment();
 const prisma = new PrismaClient();
 
 try {
-  await prisma.$queryRaw`SELECT 1`;
-  console.log('PostgreSQL connection verified');
+  const [identity] = await prisma.$queryRaw<Array<{ current_user: string }>>`
+    SELECT current_user
+  `;
+  console.log(`PostgreSQL connection verified as ${identity?.current_user}`);
 } finally {
   await prisma.$disconnect();
 }

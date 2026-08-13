@@ -6,7 +6,9 @@ import {
 } from '@prisma/client';
 import bcrypt from 'bcrypt';
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  datasourceUrl: process.env.DIRECT_DATABASE_URL,
+});
 
 const DEVELOPMENT_DEMO_PASSWORD = 'ComplianceDemo123';
 const BCRYPT_COST_FACTOR = 10;
