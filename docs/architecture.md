@@ -1,16 +1,22 @@
 # Architecture
 
-## Foundation
+## Application shape
 
-The repository is a pnpm workspace containing an Express API, a Next.js web application, a shared contracts package, and a root Prisma schema. PostgreSQL runs locally through Docker Compose. This phase deliberately contains no business data model or workflow implementation.
+The repository is a pnpm workspace containing an Express API, a Next.js web application, a shared contracts package, and a root Prisma schema. PostgreSQL runs locally through Docker Compose.
 
 The planned application shape is a modular monolith. It keeps deployment and transactions simple while allowing domain boundaries to be established inside the API as requirements are implemented. A separate service architecture would add operational cost before the domain boundaries and scaling characteristics are known.
 
+## Relational tenant foundation
+
+Users represent platform identities, while tenant memberships connect those identities to one or more tenants with a small tenant-specific role. Login and candidate email equality is case-insensitive at the PostgreSQL boundary, while candidate email uniqueness remains tenant-scoped.
+
+Every tenant-owned table stores `tenant_id` directly so later row-level security policies can operate without relying on joins. Compound foreign keys include `tenant_id` when linking candidates, logical compliance documents, document versions, superseded versions, current versions, and version creators. These constraints prevent cross-tenant relationships even before application-layer tenant validation and row-level security are implemented.
+
+A compliance document is the logical record attached to a candidate. Its versions hold the dated review lifecycle, creator, and supersession history. The document's optional current-version reference is constrained to one of its own versions; selection and immutability rules remain application concerns for later sub-phases.
+
 ## Security boundaries
 
-Tenant-owned data is not present yet. Before it is introduced, protected requests must establish authentication, validate tenant membership, apply operation-specific authorisation, validate input, and run repository work through a tenant-scoped transaction. PostgreSQL row-level security will provide defence in depth alongside application scoping.
-
-Security-sensitive backend boundaries will be prioritised over feature quantity. Compliance history will use immutable versions, audit records will be append-only, and asynchronous verification work will use a PostgreSQL outbox. AI extraction will remain advisory until an authorised human confirms a proposal.
+Authentication, validated tenant context, operation-specific authorisation, and PostgreSQL row-level security are not implemented yet. They must be added before tenant-owned records are exposed through business endpoints.
 
 ## Evolution
 
