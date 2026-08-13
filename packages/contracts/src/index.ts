@@ -14,6 +14,22 @@ export const authenticatedActorSchema = z.object({
 
 export type AuthenticatedActor = z.infer<typeof authenticatedActorSchema>;
 
+export const tenantRoleSchema = z.enum([
+  'ADMIN',
+  'RECRUITER',
+  'COMPLIANCE_OFFICER',
+  'VIEWER',
+]);
+
+export const tenantContextSchema = z.object({
+  tenantId: z.uuid(),
+  userId: z.uuid(),
+  membershipId: z.uuid(),
+  role: tenantRoleSchema,
+});
+
+export type TenantContext = z.infer<typeof tenantContextSchema>;
+
 export const loginRequestSchema = z.strictObject({
   email: z.string().trim().pipe(z.email()).pipe(z.string().max(254)),
   password: z.string().min(1).max(1024),

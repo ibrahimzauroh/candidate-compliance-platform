@@ -29,6 +29,33 @@ export function authenticationRequiredProblem(): ProblemError {
   });
 }
 
+export function tenantHeaderRequiredProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Bad Request',
+    status: 400,
+    detail: 'X-Tenant-Id header is required.',
+  });
+}
+
+export function invalidTenantHeaderProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Bad Request',
+    status: 400,
+    detail: 'X-Tenant-Id header must be a valid UUID.',
+  });
+}
+
+export function tenantContextForbiddenProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Forbidden',
+    status: 403,
+    detail: 'Tenant context is not available for this user.',
+  });
+}
+
 function invalidRequestProblem(error: z.ZodError): ProblemDetails {
   return {
     type: 'about:blank',

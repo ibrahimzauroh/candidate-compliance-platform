@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository is the foundation for a secure, multi-tenant candidate compliance module. The current phase contains the workspace, local infrastructure, core relational tenant model, deterministic development seed, platform authentication, API health endpoint, and minimal web shell. Tenant context, business APIs, authorisation, audit, verification, AI, and frontend workflows are intentionally not implemented yet.
+This repository is the foundation for a secure, multi-tenant candidate compliance module. The current phase contains the workspace, local infrastructure, core relational tenant model, deterministic development seed, platform authentication, validated tenant context, API health endpoint, and minimal web shell. Business APIs, authorisation, audit, verification, AI, and frontend workflows are intentionally not implemented yet.
 
 ## Architecture summary
 
@@ -100,6 +100,20 @@ curl http://localhost:4000/api/v1/auth/me \
 
 Authentication does not select a tenant or grant tenant permissions. Tenant context and operation-specific authorisation remain separate, unimplemented layers.
 
+## Tenant context
+
+Tenant-scoped requests must provide the selected tenant as an `X-Tenant-Id` header. The API treats this client value as untrusted and establishes context only when the authenticated user has a matching current membership.
+
+The context probe demonstrates the validated request boundary:
+
+```bash
+curl http://localhost:4000/api/v1/context \
+  -H "Authorization: Bearer <access-token>" \
+  -H "X-Tenant-Id: 10000000-0000-4000-8000-000000000001"
+```
+
+The resulting role belongs only to the selected membership. It does not grant operation-specific permissions, which remain a later security layer.
+
 ## Running API
 
 ```bash
@@ -140,7 +154,7 @@ The local seeded identities and development-only password are documented under S
 
 ## Security notes
 
-No production secrets are stored in the repository. The checked-in JWT value is explicitly local-only. Tenant isolation, PostgreSQL row-level security, operation-specific authorisation, and audit controls remain required before tenant-owned data is exposed.
+No production secrets are stored in the repository. The checked-in JWT value is explicitly local-only. Tenant membership is validated at the application boundary, but PostgreSQL row-level security, operation-specific authorisation, and audit controls remain required before tenant-owned data is exposed.
 
 ## AI assistant usage
 
@@ -148,6 +162,6 @@ AI was used for implementation acceleration, refactoring suggestions, test gener
 
 ## Known limitations
 
-- Tenant context and authorisation are not implemented.
+- Operation-specific authorisation and PostgreSQL row-level security are not implemented.
 - No business endpoints or frontend business screens are present.
 - Production deployment and observability are outside this foundation phase.

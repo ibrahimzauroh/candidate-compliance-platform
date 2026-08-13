@@ -18,7 +18,9 @@ A compliance document is the logical record attached to a candidate. Its version
 
 Authentication establishes only the current platform user identity. Login verifies the seeded bcrypt password, issues a short-lived JWT containing the user ID as its subject, and protected requests resolve the current user from PostgreSQL before attaching a tenant-neutral authenticated actor.
 
-Validated tenant context, operation-specific authorisation, and PostgreSQL row-level security remain separate, unimplemented layers. Authentication does not select a tenant or place memberships, roles, or permissions in the token. Those controls must be added before tenant-owned records are exposed through business endpoints.
+Authentication does not select a tenant or place memberships, roles, or permissions in the token. A tenant-scoped request supplies `X-Tenant-Id` as untrusted input. After authentication, the API validates that exact tenant ID against the current user's PostgreSQL membership and attaches a request-level tenant context containing only the selected membership ID and role.
+
+Operation-specific authorisation remains a separate later layer; membership alone does not permit every operation. PostgreSQL row-level security is also not implemented yet, so database defence in depth must be added before tenant-owned records are exposed through business endpoints.
 
 ## Evolution
 

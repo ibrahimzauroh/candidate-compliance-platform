@@ -4,6 +4,7 @@ import {
   healthResponseSchema,
   loginRequestSchema,
   problemDetailsSchema,
+  tenantContextSchema,
 } from './index.js';
 
 describe('healthResponseSchema', () => {
@@ -53,5 +54,34 @@ describe('problemDetailsSchema', () => {
       status: 401,
       detail: 'Invalid email or password.',
     });
+  });
+});
+
+describe('tenantContextSchema', () => {
+  it('accepts a validated tenant membership context', () => {
+    expect(
+      tenantContextSchema.parse({
+        tenantId: '10000000-0000-4000-8000-000000000001',
+        userId: '20000000-0000-4000-8000-000000000004',
+        membershipId: '30000000-0000-4000-8000-000000000004',
+        role: 'VIEWER',
+      }),
+    ).toEqual({
+      tenantId: '10000000-0000-4000-8000-000000000001',
+      userId: '20000000-0000-4000-8000-000000000004',
+      membershipId: '30000000-0000-4000-8000-000000000004',
+      role: 'VIEWER',
+    });
+  });
+
+  it('rejects an unsupported tenant role', () => {
+    expect(() =>
+      tenantContextSchema.parse({
+        tenantId: '10000000-0000-4000-8000-000000000001',
+        userId: '20000000-0000-4000-8000-000000000004',
+        membershipId: '30000000-0000-4000-8000-000000000004',
+        role: 'OWNER',
+      }),
+    ).toThrow();
   });
 });
