@@ -1,0 +1,28 @@
+{
+  "name": "@candidate-compliance/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "db:check": "tsx src/infrastructure/database/check-connection.ts",
+    "predev": "corepack pnpm --filter @candidate-compliance/contracts run build",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@candidate-compliance/contracts": "workspace:*",
+    "@prisma/client": "6.19.0",
+    "dotenv": "17.4.2",
+    "express": "5.2.1"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/node": "24.13.3",
+    "@types/supertest": "7.2.1",
+    "supertest": "7.2.2",
+    "tsx": "4.23.12",
+    "typescript": "5.9.3"
+  }
+}

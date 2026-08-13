@@ -1,0 +1,40 @@
+{
+  "name": "candidate-compliance-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "build": "corepack pnpm --recursive --if-present run build",
+    "dev": "corepack pnpm --parallel --filter @candidate-compliance/api --filter @candidate-compliance/web run dev",
+    "dev:api": "corepack pnpm --filter @candidate-compliance/api run dev",
+    "dev:web": "corepack pnpm --filter @candidate-compliance/web run dev",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint . --max-warnings=0",
+    "pretest": "corepack pnpm --filter @candidate-compliance/contracts run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "pretypecheck": "corepack pnpm --filter @candidate-compliance/contracts run build",
+    "typecheck": "corepack pnpm --recursive --if-present run typecheck",
+    "db:check": "corepack pnpm --filter @candidate-compliance/api run db:check",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.2",
+    "@prisma/client": "6.19.0",
+    "@types/node": "24.13.3",
+    "eslint": "9.39.2",
+    "eslint-config-next": "16.2.12",
+    "globals": "16.5.0",
+    "prettier": "3.9.6",
+    "prisma": "6.19.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.67.0",
+    "vitest": "4.1.10"
+  }
+}
