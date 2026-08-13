@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:17.10-bookworm
+    environment:
+      POSTGRES_DB: candidate_compliance
+      POSTGRES_PASSWORD: candidate_compliance_local
+      POSTGRES_USER: candidate_compliance
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U candidate_compliance -d candidate_compliance',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - candidate_compliance_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  candidate_compliance_postgres_data:

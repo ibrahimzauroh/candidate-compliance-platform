@@ -1,0 +1,30 @@
+AGENTS.md
+
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Builds and generated output
+.next/
+dist/
+coverage/
+*.tsbuildinfo
+apps/web/next-env.d.ts
+
+# Logs
+*.log
+pnpm-debug.log*
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Prisma local databases
+*.db
+*.db-journal
