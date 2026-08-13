@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository is the foundation for a secure, multi-tenant candidate compliance module. The current phase contains the workspace, local infrastructure, an API health endpoint, and a minimal web shell. Candidate, compliance, audit, verification, AI, and frontend business workflows are intentionally not implemented yet.
+This repository is the foundation for a secure, multi-tenant candidate compliance module. The current phase contains the workspace, local infrastructure, core relational tenant model, deterministic development seed, API health endpoint, and minimal web shell. Business APIs, authentication, audit, verification, AI, and frontend workflows are intentionally not implemented yet.
 
 ## Architecture summary
 
@@ -44,7 +44,8 @@ Start local PostgreSQL:
 
 ```bash
 docker compose up -d postgres
-pnpm db:generate
+pnpm db:migrate
+pnpm db:seed
 pnpm db:check
 ```
 
@@ -52,7 +53,7 @@ The Compose service uses a neutral database and local-only credentials. No paid 
 
 ## Migrations
 
-No domain tables or migrations exist in the foundation phase. After a schema change, create a migration with:
+Apply existing migrations or create a development migration after an approved schema change with:
 
 ```bash
 pnpm db:migrate
@@ -60,7 +61,23 @@ pnpm db:migrate
 
 ## Seed data
 
-Seed data will be added with authentication and tenancy. There is no seed command in this phase.
+Run the deterministic development seed with:
+
+```bash
+pnpm db:seed
+```
+
+### LOCAL DEVELOPMENT / DEMO CREDENTIALS
+
+The seed creates these future login identities:
+
+- `admin@iza.com`
+- `recruiter@iza.com`
+- `compliance@iza.com`
+- `shared@iza.com`
+- `khaleel.admin@iza.com`
+
+All seeded users use the development-only password `ComplianceDemo123`. Authentication is not implemented yet; a later phase will consume these identities.
 
 ## Running API
 
@@ -98,7 +115,7 @@ An OpenAPI 3 document will be introduced with the first versioned business endpo
 
 ## Demo users
 
-Demo users will be added with authentication. No credentials are included in this phase.
+The local seeded identities and development-only password are documented under Seed data. Login does not work until authentication is implemented.
 
 ## Security notes
 
@@ -110,7 +127,6 @@ AI was used for implementation acceleration, refactoring suggestions, test gener
 
 ## Known limitations
 
-- The database schema contains no domain models yet.
 - Authentication and authorisation are not implemented.
 - No business endpoints or frontend business screens are present.
 - Production deployment and observability are outside this foundation phase.
