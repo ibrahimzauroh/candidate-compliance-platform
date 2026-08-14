@@ -24,7 +24,9 @@ Tenant memberships are themselves protected by RLS, creating a bootstrap boundar
 
 The schema-owner connection applies migrations and seeds, while the API uses a separate non-owner, non-superuser runtime role without `BYPASSRLS`. Tenant-owned work runs through `withTenantTransaction`, which sets `app.current_tenant_id` transaction-locally before the callback receives its transaction-bound Prisma client. Forced PostgreSQL RLS protects memberships, candidates, documents, and document versions when application query scoping is accidentally omitted. Explicit application tenant scope and RLS remain complementary defence-in-depth controls.
 
-Global user authentication remains outside tenant RLS. Operation-specific authorisation remains a separate later layer; membership and row visibility alone do not permit every operation.
+Global user authentication remains outside tenant RLS. Operation-specific authorisation evaluates the validated tenant context's single membership role against an explicit in-code permission policy. A valid membership grants only the operations listed for that role; roles from other memberships are neither selected nor merged. `ADMIN` is evaluated through the same policy mechanism as every other role rather than bypassing it.
+
+Authorisation and PostgreSQL RLS remain separate controls. Authorisation decides whether the selected membership may perform an operation, while RLS independently limits which tenant-owned rows a transaction can access.
 
 ## Evolution
 

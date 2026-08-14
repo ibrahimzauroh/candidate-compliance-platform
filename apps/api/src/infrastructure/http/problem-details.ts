@@ -56,6 +56,15 @@ export function tenantContextForbiddenProblem(): ProblemError {
   });
 }
 
+export function permissionForbiddenProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Forbidden',
+    status: 403,
+    detail: 'You do not have permission to perform this operation.',
+  });
+}
+
 function invalidRequestProblem(error: z.ZodError): ProblemDetails {
   return {
     type: 'about:blank',

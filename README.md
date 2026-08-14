@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository is the foundation for a secure, multi-tenant candidate compliance module. The current phase contains the workspace, local infrastructure, core relational tenant model, deterministic development seed, platform authentication, validated tenant context, API health endpoint, and minimal web shell. Business APIs, authorisation, audit, verification, AI, and frontend workflows are intentionally not implemented yet.
+This repository is the foundation for a secure, multi-tenant candidate compliance module. The current phase contains the workspace, local infrastructure, core relational tenant model, deterministic development seed, platform authentication, validated tenant context, operation-specific authorisation, API health endpoint, and minimal web shell. Business APIs, audit, verification, AI, and frontend workflows are intentionally not implemented yet.
 
 ## Architecture summary
 
@@ -98,7 +98,7 @@ curl http://localhost:4000/api/v1/auth/me \
   -H "Authorization: Bearer <access-token>"
 ```
 
-Authentication does not select a tenant or grant tenant permissions. Tenant context and operation-specific authorisation remain separate, unimplemented layers.
+Authentication does not select a tenant or grant tenant permissions. Tenant context and operation-specific authorisation remain separate layers.
 
 ## Tenant context
 
@@ -112,7 +112,7 @@ curl http://localhost:4000/api/v1/context \
   -H "X-Tenant-Id: 10000000-0000-4000-8000-000000000001"
 ```
 
-The resulting role belongs only to the selected membership. Tenant-owned database work must use `withTenantTransaction`, which applies the validated tenant ID transaction-locally before PostgreSQL RLS evaluates queries. It does not grant operation-specific permissions, which remain a later security layer.
+The resulting role belongs only to the selected membership. Tenant-owned database work must use `withTenantTransaction`, which applies the validated tenant ID transaction-locally before PostgreSQL RLS evaluates queries. Membership alone does not grant every operation; protected business routes must also apply the appropriate `requirePermission` middleware.
 
 ## Running API
 
@@ -154,7 +154,7 @@ The local seeded identities and development-only password are documented under S
 
 ## Security notes
 
-No production secrets are stored in the repository. The checked-in database and JWT values are explicitly local-only. Tenant-owned tables are protected by PostgreSQL row-level security for the restricted runtime role. Operation-specific authorisation and audit controls remain required before tenant-owned data is exposed.
+No production secrets are stored in the repository. The checked-in database and JWT values are explicitly local-only. Tenant-owned tables are protected by PostgreSQL row-level security for the restricted runtime role. Future tenant-owned routes must apply operation-specific authorisation, and audit controls remain deferred.
 
 ## AI assistant usage
 
@@ -162,6 +162,6 @@ AI was used for implementation acceleration, refactoring suggestions, test gener
 
 ## Known limitations
 
-- Operation-specific authorisation is not implemented.
+- Authorisation middleware is not yet attached to tenant-owned business routes because those routes are deferred.
 - No business endpoints or frontend business screens are present.
 - Production deployment and observability are outside this foundation phase.
