@@ -83,6 +83,24 @@ export function candidateEmailConflictProblem(): ProblemError {
   });
 }
 
+export function complianceDocumentNotFoundProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Not Found',
+    status: 404,
+    detail: 'Compliance document was not found.',
+  });
+}
+
+export function documentVersionConflictProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Conflict',
+    status: 409,
+    detail: 'A document version was created concurrently. Retry the request.',
+  });
+}
+
 function invalidRequestProblem(error: z.ZodError): ProblemDetails {
   return {
     type: 'about:blank',

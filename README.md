@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository is the foundation for a secure, multi-tenant candidate compliance module. The current phase contains the workspace, local infrastructure, core relational tenant model, deterministic development seed, platform authentication, validated tenant context, operation-specific authorisation, tenant-scoped Candidate API, API health endpoint, and minimal web shell. Compliance document APIs, audit, verification, AI, and frontend workflows are intentionally not implemented yet.
+This repository is the foundation for a secure, multi-tenant candidate compliance module. The current phase contains the workspace, local infrastructure, core relational tenant model, deterministic development seed, platform authentication, validated tenant context, operation-specific authorisation, tenant-scoped Candidate and ComplianceDocument APIs, API health endpoint, and minimal web shell. Audit, verification, AI, and frontend workflows are intentionally not implemented yet.
 
 ## Architecture summary
 
@@ -129,6 +129,19 @@ Lists accept bounded `page` and `pageSize` pagination plus optional `search`, ex
 
 See [docs/api.md](docs/api.md) for the current developer-facing Candidate API reference. The implemented Candidate surface is create, list, retrieve, and update. Candidate deletion remains outstanding, and Phase 2 is not fully aligned with the tenant-scoped CRUD requirement until its policy is decided after reviewing compliance-document lifecycle and audit-history implications.
 
+## ComplianceDocument API
+
+The current document surface creates a logical document with version 1, lists a candidate's documents, retrieves a document's current version, and appends a new version:
+
+```text
+POST  /api/v1/candidates/:candidateId/documents
+GET   /api/v1/candidates/:candidateId/documents
+GET   /api/v1/documents/:documentId
+POST  /api/v1/documents/:documentId/versions
+```
+
+New versions start as `DRAFT`; tenant ownership, creator membership, version number, and current-version selection are server-controlled. See [docs/api.md](docs/api.md) for payloads, pagination, filters, responses, and current lifecycle limitations.
+
 ## Running API
 
 ```bash
@@ -161,7 +174,7 @@ pnpm build
 
 ## OpenAPI
 
-An OpenAPI 3 document will be completed in Sub-phase 2E. The current API exposes the unversioned health check plus versioned login, authenticated identity, validated tenant context, and Candidate endpoints.
+An OpenAPI 3 document will be completed in Sub-phase 2E. The current API exposes the unversioned health check plus versioned login, authenticated identity, validated tenant context, Candidate, and ComplianceDocument endpoints.
 
 ## Demo users
 
@@ -177,6 +190,7 @@ AI was used for implementation acceleration, refactoring suggestions, test gener
 
 ## Known limitations
 
-- Compliance document endpoints, idempotency, and OpenAPI are deferred to later Phase 2 sub-phases.
+- Candidate and ComplianceDocument deletion, idempotency, and OpenAPI remain deferred.
+- Approved-version immutability, explicit correction/supersession rules, and audit history remain deferred to Phase 3.
 - No frontend business screens are present.
 - Production deployment and observability are outside this foundation phase.

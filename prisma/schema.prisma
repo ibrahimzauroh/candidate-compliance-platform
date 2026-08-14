@@ -71,6 +71,7 @@ model TenantMembership {
   createdVersions ComplianceDocumentVersion[]
 
   @@unique([tenantId, userId])
+  @@unique([tenantId, id])
   @@index([userId])
   @@map("tenant_memberships")
 }
@@ -126,7 +127,7 @@ model ComplianceDocumentVersion {
   currentForDocuments ComplianceDocument[]        @relation("CurrentDocumentVersion")
   supersedes          ComplianceDocumentVersion?  @relation("VersionSupersession", fields: [tenantId, documentId, supersedesVersionId], references: [tenantId, documentId, id], onDelete: Restrict)
   supersededBy        ComplianceDocumentVersion[] @relation("VersionSupersession")
-  createdByMembership TenantMembership            @relation(fields: [tenantId, createdBy], references: [tenantId, userId], onDelete: Restrict)
+  createdByMembership TenantMembership            @relation(fields: [tenantId, createdBy], references: [tenantId, id], onDelete: Restrict)
 
   @@unique([tenantId, documentId, versionNumber])
   @@unique([tenantId, documentId, id])

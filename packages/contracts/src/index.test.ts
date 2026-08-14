@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  candidateDocumentListQuerySchema,
+  candidateDocumentListResponseSchema,
   candidateListQuerySchema,
   candidateListResponseSchema,
+  complianceDocumentSchema,
+  createComplianceDocumentRequestSchema,
+  createComplianceDocumentVersionRequestSchema,
   createCandidateRequestSchema,
   healthResponseSchema,
   loginRequestSchema,
@@ -166,5 +171,105 @@ describe('candidate list contracts', () => {
         },
       }).items[0],
     ).not.toHaveProperty('tenantId');
+  });
+});
+
+describe('compliance document request schemas', () => {
+  it('accepts ISO dates and preserves optional document dates', () => {
+    expect(
+      createComplianceDocumentRequestSchema.parse({
+        type: 'RIGHT_TO_WORK',
+        issueDate: '2026-08-01',
+        expiryDate: '2027-08-01',
+      }),
+    ).toEqual({
+      type: 'RIGHT_TO_WORK',
+      issueDate: '2026-08-01',
+      expiryDate: '2027-08-01',
+    });
+
+    expect(createComplianceDocumentVersionRequestSchema.parse({})).toEqual({});
+  });
+
+  it('rejects invalid date order and client-controlled provenance', () => {
+    expect(() =>
+      createComplianceDocumentRequestSchema.parse({
+        type: 'RIGHT_TO_WORK',
+        issueDate: '2027-08-01',
+        expiryDate: '2026-08-01',
+      }),
+    ).toThrow();
+
+    for (const field of [
+      'tenantId',
+      'candidateId',
+      'documentId',
+      'versionNumber',
+      'currentVersionId',
+      'createdBy',
+      'supersedesVersionId',
+      'status',
+    ]) {
+      expect(() =>
+        createComplianceDocumentRequestSchema.parse({
+          type: 'OTHER',
+          [field]: 'client-controlled',
+        }),
+      ).toThrow();
+    }
+  });
+});
+
+describe('compliance document response contracts', () => {
+  const document = {
+    id: '50000000-0000-4000-8000-000000000001',
+    candidateId: '40000000-0000-4000-8000-000000000001',
+    type: 'RIGHT_TO_WORK',
+    currentVersion: {
+      id: '60000000-0000-4000-8000-000000000001',
+      versionNumber: 1,
+      issueDate: '2026-08-01',
+      expiryDate: '2027-08-01',
+      status: 'DRAFT',
+      createdAt: '2026-08-14T00:00:00.000Z',
+    },
+    createdAt: '2026-08-14T00:00:00.000Z',
+    updatedAt: '2026-08-14T00:00:00.000Z',
+  } as const;
+
+  it('omits tenant and creator fields from the public document DTO', () => {
+    const parsed = complianceDocumentSchema.parse(document);
+
+    expect(parsed).not.toHaveProperty('tenantId');
+    expect(parsed.currentVersion).not.toHaveProperty('createdBy');
+  });
+
+  it('validates list filters, pagination, and response metadata', () => {
+    expect(
+      candidateDocumentListQuerySchema.parse({
+        type: 'RIGHT_TO_WORK',
+        status: 'DRAFT',
+      }),
+    ).toEqual({
+      page: 1,
+      pageSize: 20,
+      type: 'RIGHT_TO_WORK',
+      status: 'DRAFT',
+    });
+    expect(() =>
+      candidateDocumentListQuerySchema.parse({ pageSize: '101' }),
+    ).toThrow();
+
+    expect(
+      candidateDocumentListResponseSchema.parse({
+        items: [document],
+        pagination: {
+          page: 1,
+          pageSize: 20,
+          totalItems: 1,
+          totalPages: 1,
+        },
+      }).items,
+    ).toHaveLength(1);
   });
 });

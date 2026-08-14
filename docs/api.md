@@ -1,10 +1,10 @@
-# Candidate API Reference
+# API Reference
 
-This document describes the currently implemented Candidate API. It is a concise developer reference, not a replacement for the OpenAPI document planned for Sub-phase 2E.
+This document describes the currently implemented Candidate and ComplianceDocument APIs. It is a concise developer reference, not a replacement for the OpenAPI document planned for Sub-phase 2E.
 
 ## Protected-route headers
 
-All Candidate routes require:
+All protected business routes require:
 
 ```http
 Authorization: Bearer <token>
@@ -167,3 +167,168 @@ Relevant errors:
 ## Deletion status
 
 Candidate deletion is not implemented. The current surface is create, list, retrieve, and update, so Phase 2 is not yet fully aligned with the tenant-scoped CRUD requirement. The deletion policy, permissions, and behaviour require a deliberate decision after reviewing ComplianceDocument lifecycle and audit-history implications.
+
+## Compliance document representation
+
+Document responses expose the stable logical record and its current version without tenant ownership or creator identifiers:
+
+```json
+{
+  "id": "51000000-0000-4000-8000-000000000101",
+  "candidateId": "40000000-0000-4000-8000-000000000101",
+  "type": "RIGHT_TO_WORK",
+  "currentVersion": {
+    "id": "61000000-0000-4000-8000-000000000101",
+    "versionNumber": 1,
+    "issueDate": "2026-08-01",
+    "expiryDate": "2027-08-01",
+    "status": "DRAFT",
+    "createdAt": "2026-08-14T10:00:00.000Z"
+  },
+  "createdAt": "2026-08-14T10:00:00.000Z",
+  "updatedAt": "2026-08-14T10:00:00.000Z"
+}
+```
+
+Dates use `YYYY-MM-DD`. `issueDate` and `expiryDate` may be omitted or `null`; when both are present, expiry cannot precede issue.
+
+## Create a compliance document
+
+`POST /api/v1/candidates/:candidateId/documents`
+
+Creates a logical document and DRAFT version 1 atomically for a Candidate in the validated tenant. Requires `document:create`.
+
+Path parameters:
+
+- `candidateId` — required Candidate UUID.
+
+Request body:
+
+```json
+{
+  "type": "RIGHT_TO_WORK",
+  "issueDate": "2026-08-01",
+  "expiryDate": "2027-08-01"
+}
+```
+
+Supported types are `RIGHT_TO_WORK`, `BACKGROUND_CHECK`, `PROFESSIONAL_CERTIFICATION`, and `OTHER`. The server controls tenant and candidate ownership, creator membership, version number, status, current-version selection, and supersession fields. Unknown fields are rejected.
+
+Success: `201 Created` with the Compliance document representation above.
+
+Relevant errors:
+
+- `400 Bad Request` — the Candidate ID, document type, dates, or body shape is invalid.
+- `401 Unauthorized` — authentication failed.
+- `403 Forbidden` — tenant context is unavailable or `document:create` is denied.
+- `404 Not Found` — the Candidate is unavailable in the selected tenant.
+
+## List a candidate's compliance documents
+
+`GET /api/v1/candidates/:candidateId/documents`
+
+Lists the selected tenant's documents for one Candidate. Requires `document:read`.
+
+Path parameters:
+
+- `candidateId` — required Candidate UUID.
+
+Query parameters:
+
+| Parameter  | Behaviour                                                    |
+| ---------- | ------------------------------------------------------------ |
+| `page`     | Positive integer; defaults to `1` and is capped at `100000`. |
+| `pageSize` | Positive integer; defaults to `20` and is capped at `100`.   |
+| `type`     | Exact document-type filter.                                  |
+| `status`   | Exact filter against the current version's lifecycle status. |
+
+Success: `200 OK`.
+
+```json
+{
+  "items": [
+    {
+      "id": "51000000-0000-4000-8000-000000000101",
+      "candidateId": "40000000-0000-4000-8000-000000000101",
+      "type": "RIGHT_TO_WORK",
+      "currentVersion": {
+        "id": "61000000-0000-4000-8000-000000000101",
+        "versionNumber": 1,
+        "issueDate": "2026-08-01",
+        "expiryDate": "2027-08-01",
+        "status": "DRAFT",
+        "createdAt": "2026-08-14T10:00:00.000Z"
+      },
+      "createdAt": "2026-08-14T10:00:00.000Z",
+      "updatedAt": "2026-08-14T10:00:00.000Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "pageSize": 20,
+    "totalItems": 1,
+    "totalPages": 1
+  }
+}
+```
+
+Relevant errors:
+
+- `400 Bad Request` — the Candidate ID or query parameters are invalid.
+- `401 Unauthorized` — authentication failed.
+- `403 Forbidden` — tenant context is unavailable or `document:read` is denied.
+- `404 Not Found` — the Candidate is unavailable in the selected tenant.
+
+## Retrieve a compliance document
+
+`GET /api/v1/documents/:documentId`
+
+Retrieves a logical document and its current version. Requires `document:read`.
+
+Path parameters:
+
+- `documentId` — required ComplianceDocument UUID.
+
+Success: `200 OK` with the Compliance document representation above.
+
+Relevant errors:
+
+- `400 Bad Request` — `documentId` is not a valid UUID.
+- `401 Unauthorized` — authentication failed.
+- `403 Forbidden` — tenant context is unavailable or `document:read` is denied.
+- `404 Not Found` — the document is nonexistent or unavailable in the selected tenant.
+
+## Add a compliance document version
+
+`POST /api/v1/documents/:documentId/versions`
+
+Appends a DRAFT version and advances the logical document's current-version pointer atomically. Requires `document:create`.
+
+Path parameters:
+
+- `documentId` — required ComplianceDocument UUID.
+
+Request body:
+
+```json
+{
+  "issueDate": "2026-09-01",
+  "expiryDate": "2027-09-01"
+}
+```
+
+Both dates are optional. The server assigns the next version number, records the active membership as creator, and references the previous current version as `supersedesVersionId`. These internal provenance fields are not returned publicly.
+
+Success: `201 Created` with the logical document and its newly current version.
+
+Relevant errors:
+
+- `400 Bad Request` — the document ID, dates, or body shape is invalid.
+- `401 Unauthorized` — authentication failed.
+- `403 Forbidden` — tenant context is unavailable or `document:create` is denied.
+- `404 Not Found` — the document is nonexistent or unavailable in the selected tenant.
+- `409 Conflict` — concurrent requests selected the same next version number; the request may be retried.
+
+## Current versioning limitations
+
+Earlier version rows are preserved and no destructive version-update endpoint exists. Approved-version immutability, explicit correction/supersession rules, and audit history are not yet implemented; they remain Phase 3 work. ComplianceDocument deletion, idempotency, expiry queries, and OpenAPI are also deferred.

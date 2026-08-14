@@ -43,6 +43,14 @@ const ids = {
     khaleelJordan: '40000000-0000-4000-8000-000000000004',
     rejectedInsert: '70000000-0000-4000-8000-000000000001',
   },
+  documents: {
+    zaurohRightToWork: '50000000-0000-4000-8000-000000000001',
+    khaleelBackgroundCheck: '50000000-0000-4000-8000-000000000002',
+  },
+  documentVersions: {
+    zaurohRightToWorkV1: '60000000-0000-4000-8000-000000000001',
+    khaleelBackgroundCheckV1: '60000000-0000-4000-8000-000000000002',
+  },
 } as const;
 
 const zaurohSeedCandidateIds = [
@@ -106,7 +114,14 @@ beforeAll(async () => {
         )
       ) AS candidates,
       (SELECT count(*) FROM public.tenant_memberships) AS memberships,
-      (SELECT count(*) FROM public.compliance_documents) AS documents
+      (
+        SELECT count(*)
+        FROM public.compliance_documents
+        WHERE id IN (
+          ${ids.documents.zaurohRightToWork}::uuid,
+          ${ids.documents.khaleelBackgroundCheck}::uuid
+        )
+      ) AS documents
   `;
 
   if (
@@ -197,9 +212,15 @@ describe('restricted runtime database role', () => {
       { table_name: 'candidates', privilege_type: 'UPDATE' },
       {
         table_name: 'compliance_document_versions',
+        privilege_type: 'INSERT',
+      },
+      {
+        table_name: 'compliance_document_versions',
         privilege_type: 'SELECT',
       },
+      { table_name: 'compliance_documents', privilege_type: 'INSERT' },
       { table_name: 'compliance_documents', privilege_type: 'SELECT' },
+      { table_name: 'compliance_documents', privilege_type: 'UPDATE' },
       { table_name: 'tenant_memberships', privilege_type: 'SELECT' },
       { table_name: 'users', privilege_type: 'SELECT' },
     ]);
@@ -599,8 +620,12 @@ describe('forced tenant row-level security', () => {
         zaurohContext,
         async (transaction) => ({
           memberships: await transaction.tenantMembership.findMany(),
-          documents: await transaction.complianceDocument.findMany(),
-          versions: await transaction.complianceDocumentVersion.findMany(),
+          documents: await transaction.complianceDocument.findMany({
+            where: { id: { in: Object.values(ids.documents) } },
+          }),
+          versions: await transaction.complianceDocumentVersion.findMany({
+            where: { id: { in: Object.values(ids.documentVersions) } },
+          }),
         }),
       ),
       withTenantTransaction(
@@ -608,8 +633,12 @@ describe('forced tenant row-level security', () => {
         khaleelContext,
         async (transaction) => ({
           memberships: await transaction.tenantMembership.findMany(),
-          documents: await transaction.complianceDocument.findMany(),
-          versions: await transaction.complianceDocumentVersion.findMany(),
+          documents: await transaction.complianceDocument.findMany({
+            where: { id: { in: Object.values(ids.documents) } },
+          }),
+          versions: await transaction.complianceDocumentVersion.findMany({
+            where: { id: { in: Object.values(ids.documentVersions) } },
+          }),
         }),
       ),
     ]);

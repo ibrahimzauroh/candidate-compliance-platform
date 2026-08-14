@@ -126,6 +126,112 @@ export const candidateListResponseSchema = z.strictObject({
 
 export type CandidateListResponse = z.infer<typeof candidateListResponseSchema>;
 
+export const complianceDocumentTypeSchema = z.enum([
+  'RIGHT_TO_WORK',
+  'BACKGROUND_CHECK',
+  'PROFESSIONAL_CERTIFICATION',
+  'OTHER',
+]);
+
+export const complianceDocumentStatusSchema = z.enum([
+  'DRAFT',
+  'PENDING_REVIEW',
+  'APPROVED',
+  'REJECTED',
+]);
+
+const complianceDocumentDateFields = {
+  issueDate: z.iso.date().nullable().optional(),
+  expiryDate: z.iso.date().nullable().optional(),
+} as const;
+
+function hasValidDocumentDateOrder(input: {
+  issueDate?: string | null;
+  expiryDate?: string | null;
+}): boolean {
+  return (
+    !input.issueDate || !input.expiryDate || input.expiryDate >= input.issueDate
+  );
+}
+
+export const createComplianceDocumentRequestSchema = z
+  .strictObject({
+    type: complianceDocumentTypeSchema,
+    ...complianceDocumentDateFields,
+  })
+  .refine(hasValidDocumentDateOrder, {
+    path: ['expiryDate'],
+    message: 'Expiry date must not be earlier than issue date.',
+  });
+
+export type CreateComplianceDocumentRequest = z.infer<
+  typeof createComplianceDocumentRequestSchema
+>;
+
+export const createComplianceDocumentVersionRequestSchema = z
+  .strictObject(complianceDocumentDateFields)
+  .refine(hasValidDocumentDateOrder, {
+    path: ['expiryDate'],
+    message: 'Expiry date must not be earlier than issue date.',
+  });
+
+export type CreateComplianceDocumentVersionRequest = z.infer<
+  typeof createComplianceDocumentVersionRequestSchema
+>;
+
+export const documentIdParamsSchema = z.strictObject({
+  documentId: z.uuid(),
+});
+
+export const candidateDocumentListQuerySchema = z.strictObject({
+  page: z.coerce.number().int().min(1).max(100_000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  type: complianceDocumentTypeSchema.optional(),
+  status: complianceDocumentStatusSchema.optional(),
+});
+
+export type CandidateDocumentListQuery = z.infer<
+  typeof candidateDocumentListQuerySchema
+>;
+
+export const complianceDocumentVersionSchema = z.strictObject({
+  id: z.uuid(),
+  versionNumber: z.number().int().positive(),
+  issueDate: z.iso.date().nullable(),
+  expiryDate: z.iso.date().nullable(),
+  status: complianceDocumentStatusSchema,
+  createdAt: z.iso.datetime(),
+});
+
+export type ComplianceDocumentVersion = z.infer<
+  typeof complianceDocumentVersionSchema
+>;
+
+export const complianceDocumentSchema = z.strictObject({
+  id: z.uuid(),
+  candidateId: z.uuid(),
+  type: complianceDocumentTypeSchema,
+  currentVersion: complianceDocumentVersionSchema,
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+
+export type ComplianceDocument = z.infer<typeof complianceDocumentSchema>;
+
+export const candidateDocumentListResponseSchema = z.strictObject({
+  items: z.array(complianceDocumentSchema),
+  pagination: z.strictObject({
+    page: z.number().int().positive(),
+    pageSize: z.number().int().positive(),
+    totalItems: z.number().int().nonnegative(),
+    totalPages: z.number().int().nonnegative(),
+  }),
+});
+
+export type CandidateDocumentListResponse = z.infer<
+  typeof candidateDocumentListResponseSchema
+>;
+
 export const problemDetailsSchema = z.object({
   type: z.string(),
   title: z.string(),

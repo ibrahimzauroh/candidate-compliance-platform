@@ -46,7 +46,17 @@ Routes must compose these middleware layers in this order. Each layer fails clos
 
 The Candidate API is the first tenant-owned business module. Each route applies authentication, validated tenant context, and its operation-specific permission before parsing Zod request contracts. The service then runs through `withTenantTransaction` and includes the validated `tenant_id` explicitly in every read or update predicate while PostgreSQL RLS independently enforces the same tenant boundary.
 
-Create input cannot select tenant ownership, and candidate responses omit `tenantId`. Lists use bounded page-based pagination with deterministic `created_at DESC, id ASC` ordering and candidate-specific search, email, and applied-role filters. Idempotency, compliance documents, audit, and OpenAPI remain separate later sub-phases.
+Create input cannot select tenant ownership, and candidate responses omit `tenantId`. Lists use bounded page-based pagination with deterministic `created_at DESC, id ASC` ordering and candidate-specific search, email, and applied-role filters. Idempotency, audit, and OpenAPI remain separate later sub-phases.
+
+## Compliance document module
+
+A `ComplianceDocument` is the stable logical record attached to a candidate; `ComplianceDocumentVersion` rows preserve its dated status history. Creating a document writes the logical record and DRAFT version 1, then selects that version as current inside one tenant-scoped transaction. Adding a version inserts a DRAFT row, references the previous current version through `supersedesVersionId`, and advances the current pointer atomically without updating earlier version contents.
+
+Tenant ownership, candidate identity, version numbers, DRAFT status, and creator provenance are server-controlled. `createdBy` stores the validated `TenantContext.membershipId`; a migration converts the original seeded user identifiers and constrains the field to a membership in the same tenant. The runtime role can insert and update logical documents but can only insert versions, preserving an intentionally non-destructive API boundary before Phase 3 immutability rules arrive.
+
+Document lists reuse bounded page pagination and deterministic `created_at DESC, id ASC` ordering, with only document type and current-version status filters. Every candidate, document, and version query is transaction-bound and explicitly tenant-scoped, while unchanged PostgreSQL RLS policies independently enforce row isolation.
+
+Basic version numbering reads the current maximum and relies on the existing tenant/document/version unique constraint as the final concurrent-write boundary. A colliding request receives a generic `409 Conflict` and may retry; no distributed lock or global serialisation is introduced. Approved-version immutability, correction semantics, audit history, and idempotent replay remain deferred.
 
 ## Evolution
 
