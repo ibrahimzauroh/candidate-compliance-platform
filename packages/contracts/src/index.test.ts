@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  candidateListQuerySchema,
+  candidateListResponseSchema,
+  createCandidateRequestSchema,
   healthResponseSchema,
   loginRequestSchema,
   problemDetailsSchema,
   tenantContextSchema,
+  updateCandidateRequestSchema,
 } from './index.js';
 
 describe('healthResponseSchema', () => {
@@ -83,5 +87,84 @@ describe('tenantContextSchema', () => {
         role: 'OWNER',
       }),
     ).toThrow();
+  });
+});
+
+describe('candidate request schemas', () => {
+  it('normalises candidate create input', () => {
+    expect(
+      createCandidateRequestSchema.parse({
+        fullName: '  Alex Candidate  ',
+        email: '  Alex.Candidate@IZA.com  ',
+        roleAppliedFor: '  Software Engineer  ',
+      }),
+    ).toEqual({
+      fullName: 'Alex Candidate',
+      email: 'alex.candidate@iza.com',
+      roleAppliedFor: 'Software Engineer',
+    });
+  });
+
+  it('rejects client-controlled tenant ownership', () => {
+    expect(() =>
+      createCandidateRequestSchema.parse({
+        fullName: 'Alex Candidate',
+        email: 'alex.candidate@iza.com',
+        roleAppliedFor: 'Software Engineer',
+        tenantId: '10000000-0000-4000-8000-000000000002',
+      }),
+    ).toThrow();
+  });
+
+  it('requires at least one supported candidate update field', () => {
+    expect(() => updateCandidateRequestSchema.parse({})).toThrow();
+    expect(() =>
+      updateCandidateRequestSchema.parse({
+        tenantId: '10000000-0000-4000-8000-000000000002',
+      }),
+    ).toThrow();
+  });
+});
+
+describe('candidate list contracts', () => {
+  it('applies bounded pagination defaults and normalises filters', () => {
+    expect(
+      candidateListQuerySchema.parse({
+        email: '  Candidate@IZA.com ',
+        roleAppliedFor: '  Engineer ',
+      }),
+    ).toEqual({
+      page: 1,
+      pageSize: 20,
+      email: 'candidate@iza.com',
+      roleAppliedFor: 'Engineer',
+    });
+
+    expect(() =>
+      candidateListQuerySchema.parse({ page: '1', pageSize: '101' }),
+    ).toThrow();
+  });
+
+  it('accepts a paginated candidate response without tenant ownership fields', () => {
+    expect(
+      candidateListResponseSchema.parse({
+        items: [
+          {
+            id: '40000000-0000-4000-8000-000000000001',
+            fullName: 'Alex Candidate',
+            email: 'alex.candidate@iza.com',
+            roleAppliedFor: 'Software Engineer',
+            createdAt: '2026-08-14T00:00:00.000Z',
+            updatedAt: '2026-08-14T00:00:00.000Z',
+          },
+        ],
+        pagination: {
+          page: 1,
+          pageSize: 20,
+          totalItems: 1,
+          totalPages: 1,
+        },
+      }).items[0],
+    ).not.toHaveProperty('tenantId');
   });
 });

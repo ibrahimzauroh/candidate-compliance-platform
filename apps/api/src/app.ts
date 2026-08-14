@@ -5,6 +5,7 @@ import express, { type Express } from 'express';
 import type { JwtConfig } from './config/jwt-config.js';
 import { problemDetailsHandler } from './infrastructure/http/problem-details.js';
 import { createAuthRouter } from './modules/auth/auth.routes.js';
+import { createCandidateRouter } from './modules/candidates/candidate.routes.js';
 import { createTenantContextRouter } from './modules/tenant-context/tenant-context.routes.js';
 
 interface AppDependencies {
@@ -24,6 +25,7 @@ export function createApp({ prisma, jwtConfig }: AppDependencies): Express {
 
   app.use('/api/v1/auth', createAuthRouter(prisma, jwtConfig));
   app.use('/api/v1/context', createTenantContextRouter(prisma, jwtConfig));
+  app.use('/api/v1/candidates', createCandidateRouter(prisma, jwtConfig));
   app.use(problemDetailsHandler);
 
   return app;

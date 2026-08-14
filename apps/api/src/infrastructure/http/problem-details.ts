@@ -65,6 +65,24 @@ export function permissionForbiddenProblem(): ProblemError {
   });
 }
 
+export function candidateNotFoundProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Not Found',
+    status: 404,
+    detail: 'Candidate was not found.',
+  });
+}
+
+export function candidateEmailConflictProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Conflict',
+    status: 409,
+    detail: 'A candidate with this email already exists in this tenant.',
+  });
+}
+
 function invalidRequestProblem(error: z.ZodError): ProblemDetails {
   return {
     type: 'about:blank',

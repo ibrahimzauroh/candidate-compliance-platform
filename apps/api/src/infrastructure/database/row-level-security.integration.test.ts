@@ -38,10 +38,23 @@ const ids = {
   },
   candidates: {
     zaurohAlex: '40000000-0000-4000-8000-000000000001',
+    zaurohMorgan: '40000000-0000-4000-8000-000000000002',
     khaleelAlex: '40000000-0000-4000-8000-000000000003',
+    khaleelJordan: '40000000-0000-4000-8000-000000000004',
     rejectedInsert: '70000000-0000-4000-8000-000000000001',
   },
 } as const;
+
+const zaurohSeedCandidateIds = [
+  ids.candidates.zaurohAlex,
+  ids.candidates.zaurohMorgan,
+] as const;
+
+const seededCandidateIds = [
+  ...zaurohSeedCandidateIds,
+  ids.candidates.khaleelAlex,
+  ids.candidates.khaleelJordan,
+] as const;
 
 const zaurohContext: TenantContext = {
   tenantId: ids.tenants.zauroh,
@@ -82,7 +95,16 @@ beforeAll(async () => {
     Array<{ candidates: bigint; memberships: bigint; documents: bigint }>
   >`
     SELECT
-      (SELECT count(*) FROM public.candidates) AS candidates,
+      (
+        SELECT count(*)
+        FROM public.candidates
+        WHERE id IN (
+          ${ids.candidates.zaurohAlex}::uuid,
+          ${ids.candidates.zaurohMorgan}::uuid,
+          ${ids.candidates.khaleelAlex}::uuid,
+          ${ids.candidates.khaleelJordan}::uuid
+        )
+      ) AS candidates,
       (SELECT count(*) FROM public.tenant_memberships) AS memberships,
       (SELECT count(*) FROM public.compliance_documents) AS documents
   `;
@@ -448,13 +470,19 @@ describe('forced tenant row-level security', () => {
       runtimePrisma,
       zaurohContext,
       (transaction) =>
-        transaction.candidate.findMany({ orderBy: { id: 'asc' } }),
+        transaction.candidate.findMany({
+          where: { id: { in: [...seededCandidateIds] } },
+          orderBy: { id: 'asc' },
+        }),
     );
     const khaleelCandidates = await withTenantTransaction(
       runtimePrisma,
       khaleelContext,
       (transaction) =>
-        transaction.candidate.findMany({ orderBy: { id: 'asc' } }),
+        transaction.candidate.findMany({
+          where: { id: { in: [...seededCandidateIds] } },
+          orderBy: { id: 'asc' },
+        }),
     );
 
     expect(zaurohCandidates).toHaveLength(2);
@@ -610,13 +638,19 @@ describe('transaction-local tenant setting', () => {
     const zaurohCount = await withTenantTransaction(
       runtimePrisma,
       zaurohContext,
-      (transaction) => transaction.candidate.count(),
+      (transaction) =>
+        transaction.candidate.count({
+          where: { id: { in: [...seededCandidateIds] } },
+        }),
     );
     const withoutContext = await runtimePrisma.candidate.count();
     const khaleelCount = await withTenantTransaction(
       runtimePrisma,
       khaleelContext,
-      (transaction) => transaction.candidate.count(),
+      (transaction) =>
+        transaction.candidate.count({
+          where: { id: { in: [...seededCandidateIds] } },
+        }),
     );
 
     expect(zaurohCount).toBe(2);
@@ -630,13 +664,21 @@ describe('transaction-local tenant setting', () => {
         runtimePrisma,
         zaurohContext,
         async (transaction) => {
-          expect(await transaction.candidate.count()).toBe(2);
+          expect(
+            await transaction.candidate.count({
+              where: { id: { in: [...zaurohSeedCandidateIds] } },
+            }),
+          ).toBe(2);
           throw new Error('intentional rollback');
         },
       ),
     ).rejects.toThrow('intentional rollback');
 
-    await expect(runtimePrisma.candidate.count()).resolves.toBe(0);
+    await expect(
+      runtimePrisma.candidate.count({
+        where: { id: { in: [...zaurohSeedCandidateIds] } },
+      }),
+    ).resolves.toBe(0);
   });
 
   it('isolates concurrent transactions with different tenants', async () => {
@@ -646,7 +688,9 @@ describe('transaction-local tenant setting', () => {
         zaurohContext,
         async (transaction) => {
           await new Promise((resolve) => setTimeout(resolve, 25));
-          const rows = await transaction.candidate.findMany();
+          const rows = await transaction.candidate.findMany({
+            where: { id: { in: [...seededCandidateIds] } },
+          });
           return rows.map((row) => row.tenantId);
         },
       ),
@@ -654,7 +698,9 @@ describe('transaction-local tenant setting', () => {
         runtimePrisma,
         khaleelContext,
         async (transaction) => {
-          const rows = await transaction.candidate.findMany();
+          const rows = await transaction.candidate.findMany({
+            where: { id: { in: [...seededCandidateIds] } },
+          });
           await new Promise((resolve) => setTimeout(resolve, 25));
           return rows.map((row) => row.tenantId);
         },

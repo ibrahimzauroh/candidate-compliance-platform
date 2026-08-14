@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository is the foundation for a secure, multi-tenant candidate compliance module. The current phase contains the workspace, local infrastructure, core relational tenant model, deterministic development seed, platform authentication, validated tenant context, operation-specific authorisation, API health endpoint, and minimal web shell. Business APIs, audit, verification, AI, and frontend workflows are intentionally not implemented yet.
+This repository is the foundation for a secure, multi-tenant candidate compliance module. The current phase contains the workspace, local infrastructure, core relational tenant model, deterministic development seed, platform authentication, validated tenant context, operation-specific authorisation, tenant-scoped Candidate API, API health endpoint, and minimal web shell. Compliance document APIs, audit, verification, AI, and frontend workflows are intentionally not implemented yet.
 
 ## Architecture summary
 
@@ -114,6 +114,21 @@ curl http://localhost:4000/api/v1/context \
 
 The resulting role belongs only to the selected membership. Tenant-owned database work must use `withTenantTransaction`, which applies the validated tenant ID transaction-locally before PostgreSQL RLS evaluates queries. Membership alone does not grant every operation; protected business routes must also apply the appropriate `requirePermission` middleware.
 
+## Candidate API
+
+Candidate routes require both a Bearer access token and validated `X-Tenant-Id` header:
+
+```text
+POST   /api/v1/candidates
+GET    /api/v1/candidates
+GET    /api/v1/candidates/:candidateId
+PATCH  /api/v1/candidates/:candidateId
+```
+
+Lists accept bounded `page` and `pageSize` pagination plus optional `search`, exact `email`, and partial `roleAppliedFor` filters. Candidate ownership always comes from the validated tenant context; `tenantId` is neither accepted in write bodies nor exposed in candidate responses. Candidate writes are not idempotent yet because idempotency is deferred to Sub-phase 2D.
+
+See [docs/api.md](docs/api.md) for the current developer-facing Candidate API reference. The implemented Candidate surface is create, list, retrieve, and update. Candidate deletion remains outstanding, and Phase 2 is not fully aligned with the tenant-scoped CRUD requirement until its policy is decided after reviewing compliance-document lifecycle and audit-history implications.
+
 ## Running API
 
 ```bash
@@ -146,7 +161,7 @@ pnpm build
 
 ## OpenAPI
 
-An OpenAPI 3 document will be introduced with the first versioned business endpoints. The current API exposes the unversioned health check plus versioned login, authenticated identity, and validated tenant-context routes; it does not yet expose tenant-owned business endpoints.
+An OpenAPI 3 document will be completed in Sub-phase 2E. The current API exposes the unversioned health check plus versioned login, authenticated identity, validated tenant context, and Candidate endpoints.
 
 ## Demo users
 
@@ -162,6 +177,6 @@ AI was used for implementation acceleration, refactoring suggestions, test gener
 
 ## Known limitations
 
-- Authorisation middleware is not yet attached to tenant-owned business routes because those routes are deferred.
-- No business endpoints or frontend business screens are present.
+- Compliance document endpoints, idempotency, and OpenAPI are deferred to later Phase 2 sub-phases.
+- No frontend business screens are present.
 - Production deployment and observability are outside this foundation phase.
