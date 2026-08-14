@@ -11,6 +11,7 @@
     "build": "corepack pnpm --recursive --if-present run build",
     "dev": "corepack pnpm --parallel --filter @candidate-compliance/api --filter @candidate-compliance/web run dev",
     "dev:api": "corepack pnpm --filter @candidate-compliance/api run dev",
+    "dev:worker": "corepack pnpm --filter @candidate-compliance/api run dev:worker",
     "dev:web": "corepack pnpm --filter @candidate-compliance/web run dev",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

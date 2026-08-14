@@ -262,6 +262,37 @@ export type ExpiringComplianceDocumentListResponse = z.infer<
   typeof expiringComplianceDocumentListResponseSchema
 >;
 
+export const requestVerificationRequestSchema = z.strictObject({});
+
+export const verificationRequestIdParamsSchema = z.strictObject({
+  verificationRequestId: z.uuid(),
+});
+
+export const verificationStatusSchema = z.enum([
+  'requested',
+  'pending',
+  'verified',
+  'failed',
+]);
+
+export const verificationRequestSchema = z.strictObject({
+  id: z.uuid(),
+  documentId: z.uuid(),
+  documentVersionId: z.uuid(),
+  status: verificationStatusSchema,
+  attemptCount: z.number().int().min(0).max(3),
+  failureCode: z
+    .string()
+    .regex(/^[A-Z0-9_]{1,64}$/)
+    .nullable(),
+  requestedAt: z.iso.datetime(),
+  startedAt: z.iso.datetime().nullable(),
+  completedAt: z.iso.datetime().nullable(),
+  updatedAt: z.iso.datetime(),
+});
+
+export type VerificationRequest = z.infer<typeof verificationRequestSchema>;
+
 export const idempotencyKeySchema = z
   .string()
   .trim()

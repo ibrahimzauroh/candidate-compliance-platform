@@ -19,6 +19,7 @@ export const IDEMPOTENCY_OPERATIONS = {
   documentVersionCreate: 'document:version:create',
   documentApprove: 'document:approve',
   documentCorrect: 'document:correct',
+  verificationRequest: 'verification:request',
 } as const;
 
 export type IdempotencyOperation =

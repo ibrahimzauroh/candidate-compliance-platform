@@ -1,6 +1,6 @@
 # API Reference
 
-This document describes the currently implemented Candidate and ComplianceDocument APIs. It is a concise developer reference, not a replacement for the OpenAPI document planned for Sub-phase 2E.
+This document describes the currently implemented Candidate, ComplianceDocument, and verification APIs. It is a concise developer reference, not a replacement for the planned OpenAPI document.
 
 ## Protected-route headers
 
@@ -480,6 +480,72 @@ Relevant errors:
 - `404 Not Found` — the document is nonexistent or unavailable in the selected tenant.
 - `409 Conflict` — the current version is not approved.
 - `409 Conflict` — the scoped idempotency key was already used for different input.
+
+## Request Right-to-Work verification
+
+`POST /api/v1/documents/:documentId/verifications`
+
+Creates an asynchronous verification request for the selected logical document's current version. Requires `verification:request` and `Idempotency-Key`. The request body must be an empty JSON object.
+
+The document must be `RIGHT_TO_WORK`, its current version must be `APPROVED`, and the version must not already have a verification request. The request, one outbox event, creation audit event, and idempotency response are committed in one tenant transaction.
+
+Success: `202 Accepted`.
+
+```json
+{
+  "id": "70000000-0000-4000-8000-000000000001",
+  "documentId": "50000000-0000-4000-8000-000000000001",
+  "documentVersionId": "60000000-0000-4000-8000-000000000001",
+  "status": "requested",
+  "attemptCount": 0,
+  "failureCode": null,
+  "requestedAt": "2026-08-14T20:00:00.000Z",
+  "startedAt": null,
+  "completedAt": null,
+  "updatedAt": "2026-08-14T20:00:00.000Z"
+}
+```
+
+Relevant errors:
+
+- `400 Bad Request` — `Idempotency-Key`, document ID, or request body is invalid.
+- `401 Unauthorized` — authentication failed.
+- `403 Forbidden` — tenant context is unavailable or `verification:request` is denied.
+- `404 Not Found` — the document is nonexistent or unavailable in the selected tenant.
+- `409 Conflict` — the current document version is not eligible.
+- `409 Conflict` — the current version already has a verification request.
+- `409 Conflict` — the scoped idempotency key was already used for different input.
+
+An identical idempotent retry replays the original `202` response without creating another request, outbox event, or audit event.
+
+## Retrieve verification status
+
+`GET /api/v1/verifications/:verificationRequestId`
+
+Returns one verification request visible to the validated tenant. Requires `verification:read`. A successful read appends a tenant-scoped sensitive-read audit event.
+
+Success: `200 OK` with the verification representation above. Status follows:
+
+```text
+requested -> pending -> verified | failed
+```
+
+`attemptCount` is capped at three. `failureCode` is null except for failed requests and contains only a bounded machine-readable code; provider exceptions and raw document data are not exposed.
+
+Relevant errors:
+
+- `400 Bad Request` — the verification request ID is invalid.
+- `401 Unauthorized` — authentication failed.
+- `403 Forbidden` — tenant context is unavailable or `verification:read` is denied.
+- `404 Not Found` — the request is nonexistent or unavailable in the selected tenant.
+
+## Verification worker behaviour
+
+The separate local worker claims due outbox events with row locking and `SKIP LOCKED`, so concurrent workers cannot claim the same event. A narrow `SECURITY DEFINER` function returns only one due event's identifiers and does not accept a tenant selector, expose payload data, establish tenant state, or provide general RLS bypass access. Processing immediately returns to a normal tenant transaction using the claimed tenant identifier.
+
+The deterministic local verifier returns `failed` when the approved version has no expiry date or is expired relative to the worker's UTC date; otherwise it returns `verified`. Unexpected verifier failures release the event for a bounded retry. After three unsuccessful attempts the request becomes `failed` with `MAX_ATTEMPTS_EXCEEDED`. An event whose final lease expired after a worker crash is reclaimed only to record that terminal state; it does not invoke the verifier again. Completed events have `processedAt` set and are not claimed again.
+
+Request creation, transition to `pending`, and terminal transitions are audited with canonical before/after hashes. Outbox rows store identifiers, claim timestamps, attempt counts, and minimal failure codes only.
 
 ## Current versioning limitations
 

@@ -130,6 +130,34 @@ export function approvedDocumentVersionConflictProblem(): ProblemError {
   });
 }
 
+export function verificationRequestNotFoundProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Not Found',
+    status: 404,
+    detail: 'Verification request was not found.',
+  });
+}
+
+export function verificationEligibilityConflictProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Conflict',
+    status: 409,
+    detail:
+      'Only an approved current Right-to-Work document version can be submitted for verification.',
+  });
+}
+
+export function verificationAlreadyRequestedProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Conflict',
+    status: 409,
+    detail: 'This document version already has a verification request.',
+  });
+}
+
 export function idempotencyKeyRequiredProblem(): ProblemError {
   return new ProblemError({
     type: 'about:blank',

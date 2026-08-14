@@ -8,7 +8,10 @@
     "db:check": "tsx src/infrastructure/database/check-connection.ts",
     "predev": "corepack pnpm --filter @candidate-compliance/contracts run build",
     "dev": "tsx watch src/server.ts",
+    "predev:worker": "corepack pnpm --filter @candidate-compliance/contracts run build",
+    "dev:worker": "tsx watch src/verification-worker.ts",
     "start": "node dist/server.js",
+    "start:worker": "node dist/verification-worker.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

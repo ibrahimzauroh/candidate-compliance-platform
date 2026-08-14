@@ -1,0 +1,177 @@
+import {
+  verificationRequestSchema,
+  type TenantContext,
+  type VerificationRequest as VerificationRequestDto,
+} from '@candidate-compliance/contracts';
+import {
+  ComplianceDocumentStatus,
+  ComplianceDocumentType,
+  OutboxEventType,
+  Prisma,
+  type PrismaClient,
+  type VerificationRequest,
+} from '@prisma/client';
+
+import { withTenantTransaction } from '../../infrastructure/database/with-tenant-transaction.js';
+import {
+  complianceDocumentNotFoundProblem,
+  verificationAlreadyRequestedProblem,
+  verificationEligibilityConflictProblem,
+  verificationRequestNotFoundProblem,
+} from '../../infrastructure/http/problem-details.js';
+import {
+  appendAuditEvent,
+  AUDIT_ACTIONS,
+  AUDIT_RECORD_TYPES,
+} from '../audit/audit.service.js';
+import {
+  executeIdempotentWrite,
+  IDEMPOTENCY_OPERATIONS,
+  type IdempotentWriteResult,
+} from '../idempotency/idempotency.service.js';
+
+function statusValue(
+  status: VerificationRequest['status'],
+): Lowercase<VerificationRequest['status']> {
+  return status.toLowerCase() as Lowercase<VerificationRequest['status']>;
+}
+
+export function toVerificationRequestDto(
+  request: VerificationRequest,
+): VerificationRequestDto {
+  return verificationRequestSchema.parse({
+    id: request.id,
+    documentId: request.documentId,
+    documentVersionId: request.documentVersionId,
+    status: statusValue(request.status),
+    attemptCount: request.attemptCount,
+    failureCode: request.failureCode,
+    requestedAt: request.requestedAt.toISOString(),
+    startedAt: request.startedAt?.toISOString() ?? null,
+    completedAt: request.completedAt?.toISOString() ?? null,
+    updatedAt: request.updatedAt.toISOString(),
+  });
+}
+
+function isUniqueConstraintConflict(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2002'
+  );
+}
+
+export async function requestRightToWorkVerification(
+  prisma: PrismaClient,
+  tenantContext: TenantContext,
+  documentId: string,
+  idempotencyKey: string,
+): Promise<IdempotentWriteResult<VerificationRequestDto>> {
+  try {
+    return await executeIdempotentWrite({
+      prisma,
+      tenantContext,
+      key: idempotencyKey,
+      operation: IDEMPOTENCY_OPERATIONS.verificationRequest,
+      fingerprintInput: { documentId },
+      responseStatus: 202,
+      parseResponse: (value) => verificationRequestSchema.parse(value),
+      execute: async (transaction) => {
+        const locked = await transaction.$queryRaw<Array<{ id: string }>>`
+          SELECT id
+          FROM public.compliance_documents
+          WHERE tenant_id = ${tenantContext.tenantId}::uuid
+            AND id = ${documentId}::uuid
+          FOR UPDATE
+        `;
+
+        if (locked.length !== 1) {
+          throw complianceDocumentNotFoundProblem();
+        }
+
+        const document = await transaction.complianceDocument.findFirst({
+          where: {
+            id: documentId,
+            tenantId: tenantContext.tenantId,
+          },
+          include: { currentVersion: true },
+        });
+
+        if (!document) {
+          throw complianceDocumentNotFoundProblem();
+        }
+        if (
+          document.type !== ComplianceDocumentType.RIGHT_TO_WORK ||
+          !document.currentVersion ||
+          document.currentVersion.status !== ComplianceDocumentStatus.APPROVED
+        ) {
+          throw verificationEligibilityConflictProblem();
+        }
+
+        const verificationRequest =
+          await transaction.verificationRequest.create({
+            data: {
+              tenantId: tenantContext.tenantId,
+              documentId,
+              documentVersionId: document.currentVersion.id,
+              requestedByUserId: tenantContext.userId,
+              requestedByMembershipId: tenantContext.membershipId,
+              outboxEvents: {
+                create: {
+                  type: OutboxEventType.RIGHT_TO_WORK_VERIFICATION_REQUESTED,
+                },
+              },
+            },
+          });
+        const response = toVerificationRequestDto(verificationRequest);
+
+        await appendAuditEvent(transaction, tenantContext, {
+          action: AUDIT_ACTIONS.verificationRequest,
+          recordType: AUDIT_RECORD_TYPES.verificationRequest,
+          recordId: verificationRequest.id,
+          before: null,
+          after: response,
+        });
+
+        return response;
+      },
+    });
+  } catch (error) {
+    if (isUniqueConstraintConflict(error)) {
+      throw verificationAlreadyRequestedProblem();
+    }
+
+    throw error;
+  }
+}
+
+export async function getVerificationRequest(
+  prisma: PrismaClient,
+  tenantContext: TenantContext,
+  verificationRequestId: string,
+): Promise<VerificationRequestDto> {
+  return withTenantTransaction(prisma, tenantContext, async (transaction) => {
+    const verificationRequest = await transaction.verificationRequest.findFirst(
+      {
+        where: {
+          id: verificationRequestId,
+          tenantId: tenantContext.tenantId,
+        },
+      },
+    );
+
+    if (!verificationRequest) {
+      throw verificationRequestNotFoundProblem();
+    }
+
+    const response = toVerificationRequestDto(verificationRequest);
+    await appendAuditEvent(transaction, tenantContext, {
+      action: AUDIT_ACTIONS.verificationRead,
+      recordType: AUDIT_RECORD_TYPES.verificationRequest,
+      recordId: verificationRequest.id,
+      before: null,
+      after: response,
+    });
+
+    return response;
+  });
+}
