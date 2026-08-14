@@ -65,6 +65,100 @@ export function permissionForbiddenProblem(): ProblemError {
   });
 }
 
+export function candidateNotFoundProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Not Found',
+    status: 404,
+    detail: 'Candidate was not found.',
+  });
+}
+
+export function candidateEmailConflictProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Conflict',
+    status: 409,
+    detail: 'A candidate with this email already exists in this tenant.',
+  });
+}
+
+export function complianceDocumentNotFoundProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Not Found',
+    status: 404,
+    detail: 'Compliance document was not found.',
+  });
+}
+
+export function documentVersionConflictProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Conflict',
+    status: 409,
+    detail: 'A document version was created concurrently. Retry the request.',
+  });
+}
+
+export function documentApprovalConflictProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Conflict',
+    status: 409,
+    detail:
+      'The current document version cannot be approved from its current status.',
+  });
+}
+
+export function documentCorrectionConflictProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Conflict',
+    status: 409,
+    detail: 'Only an approved current document version can be corrected.',
+  });
+}
+
+export function approvedDocumentVersionConflictProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Conflict',
+    status: 409,
+    detail:
+      'Approved document versions must be changed through the correction operation.',
+  });
+}
+
+export function idempotencyKeyRequiredProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Bad Request',
+    status: 400,
+    detail: 'Idempotency-Key header is required.',
+  });
+}
+
+export function invalidIdempotencyKeyProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Bad Request',
+    status: 400,
+    detail:
+      'Idempotency-Key must contain 1 to 200 supported opaque characters.',
+  });
+}
+
+export function idempotencyKeyConflictProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Conflict',
+    status: 409,
+    detail:
+      'This Idempotency-Key has already been used for a different request.',
+  });
+}
+
 function invalidRequestProblem(error: z.ZodError): ProblemDetails {
   return {
     type: 'about:blank',

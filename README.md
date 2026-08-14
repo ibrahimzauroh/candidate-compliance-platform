@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository is the foundation for a secure, multi-tenant candidate compliance module. The current phase contains the workspace, local infrastructure, core relational tenant model, deterministic development seed, platform authentication, validated tenant context, operation-specific authorisation, API health endpoint, and minimal web shell. Business APIs, audit, verification, AI, and frontend workflows are intentionally not implemented yet.
+This repository is the foundation for a secure, multi-tenant candidate compliance module. The current phase contains the workspace, local infrastructure, core relational tenant model, deterministic development seed, platform authentication, validated tenant context, operation-specific authorisation, tenant-scoped Candidate and ComplianceDocument APIs, append-only audit ledger, API health endpoint, and minimal web shell. Verification, AI, and frontend workflows are intentionally not implemented yet.
 
 ## Architecture summary
 
@@ -20,7 +20,7 @@ The project is a pnpm monorepo with an Express API, a Next.js web application, s
 
 ## Prerequisites
 
-- Node.js 20.9 or later
+- Node.js 24 or later
 - Corepack
 - Docker Desktop or another Docker installation with Compose v2
 
@@ -58,6 +58,8 @@ Apply existing migrations or create a development migration after an approved sc
 ```bash
 pnpm db:migrate
 ```
+
+Prisma migrations are treated as forward-only in this project; a production rollback requires an explicitly reviewed compensating migration or approved database recovery procedure, not a destructive reset command.
 
 ## Seed data
 
@@ -114,6 +116,43 @@ curl http://localhost:4000/api/v1/context \
 
 The resulting role belongs only to the selected membership. Tenant-owned database work must use `withTenantTransaction`, which applies the validated tenant ID transaction-locally before PostgreSQL RLS evaluates queries. Membership alone does not grant every operation; protected business routes must also apply the appropriate `requirePermission` middleware.
 
+## Candidate API
+
+Candidate routes require both a Bearer access token and validated `X-Tenant-Id` header. Candidate mutations also require an `Idempotency-Key` header:
+
+```text
+POST   /api/v1/candidates
+GET    /api/v1/candidates
+GET    /api/v1/candidates/:candidateId
+PATCH  /api/v1/candidates/:candidateId
+```
+
+Lists accept bounded `page` and `pageSize` pagination plus optional `search`, exact `email`, and partial `roleAppliedFor` filters. Candidate ownership always comes from the validated tenant context; `tenantId` is neither accepted in write bodies nor exposed in candidate responses. An identical mutation retry with the same idempotency key replays its original response, while reuse for different input returns `409 Conflict`.
+
+See [docs/api.md](docs/api.md) for the current developer-facing Candidate API reference. The implemented Candidate surface is create, list, retrieve, and update. Candidate deletion remains outstanding, and Phase 2 is not fully aligned with the tenant-scoped CRUD requirement until its policy is decided after reviewing compliance-document lifecycle and audit-history implications.
+
+## ComplianceDocument API
+
+The current document surface creates a logical document with version 1, lists and retrieves documents, appends draft versions, approves eligible current versions, and corrects approved current versions through supersession:
+
+```text
+POST  /api/v1/candidates/:candidateId/documents
+GET   /api/v1/candidates/:candidateId/documents
+GET   /api/v1/documents/:documentId
+GET   /api/v1/documents/expiring
+POST  /api/v1/documents/:documentId/versions
+POST  /api/v1/documents/:documentId/approve
+POST  /api/v1/documents/:documentId/corrections
+```
+
+New versions start as `DRAFT`; tenant ownership, creator membership, version number, status transitions, and current-version selection are server-controlled. A current `DRAFT` or `PENDING_REVIEW` version may be approved, while correcting a current `APPROVED` version creates a new `DRAFT` that supersedes it and atomically becomes current. The approved row is retained unchanged. All document mutations require an `Idempotency-Key`, use operation-specific permissions, and write their audit event transactionally. The expiring-documents route returns current versions expiring from today through day 30 for the validated tenant. See [docs/api.md](docs/api.md) for payloads, pagination, filters, responses, and lifecycle rules.
+
+## Audit ledger
+
+Candidate and compliance-document creates, updates, version creation, retrievals, paginated lists, and expiring-document results append tenant-scoped audit events. Mutation events commit atomically with the domain write and idempotency record; an idempotent replay does not append another mutation event. Events store actor and membership identifiers, the affected record identity, and canonical SHA-256 before/after hashes rather than raw candidate or document state.
+
+List reads append one event for each record actually returned, bounded by the existing maximum page size of 100. Empty pages therefore create no record-level event. The restricted runtime role may only insert audit rows; forced RLS checks tenant ownership, and update/delete privileges are withheld. No audit browsing or export API is implemented.
+
 ## Running API
 
 ```bash
@@ -146,7 +185,7 @@ pnpm build
 
 ## OpenAPI
 
-An OpenAPI 3 document will be introduced with the first versioned business endpoints. The current API exposes the unversioned health check plus versioned login, authenticated identity, and validated tenant-context routes; it does not yet expose tenant-owned business endpoints.
+An OpenAPI 3 document will be completed in Sub-phase 2E. The current API exposes the unversioned health check plus versioned login, authenticated identity, validated tenant context, Candidate, and ComplianceDocument endpoints.
 
 ## Demo users
 
@@ -154,7 +193,7 @@ The local seeded identities and development-only password are documented under S
 
 ## Security notes
 
-No production secrets are stored in the repository. The checked-in database and JWT values are explicitly local-only. Tenant-owned tables are protected by PostgreSQL row-level security for the restricted runtime role. Future tenant-owned routes must apply operation-specific authorisation, and audit controls remain deferred.
+No production secrets are stored in the repository. The checked-in database and JWT values are explicitly local-only. Tenant-owned tables are protected by PostgreSQL row-level security for the restricted runtime role. Future tenant-owned routes must apply operation-specific authorisation and define their audit behaviour explicitly.
 
 ## AI assistant usage
 
@@ -162,6 +201,10 @@ AI was used for implementation acceleration, refactoring suggestions, test gener
 
 ## Known limitations
 
-- Authorisation middleware is not yet attached to tenant-owned business routes because those routes are deferred.
-- No business endpoints or frontend business screens are present.
+- Candidate and ComplianceDocument deletion and OpenAPI remain deferred.
+- Production idempotency-record retention and cleanup policy remains an operational decision.
+- Audit browsing/export, retention, and external log forwarding are not implemented.
+- Empty list pages do not create an audit row because the ledger records each returned record rather than query intent.
+- Approval currently records the transition through the append-only ledger rather than separate approval-comment or approval-reason fields.
+- No frontend business screens are present.
 - Production deployment and observability are outside this foundation phase.

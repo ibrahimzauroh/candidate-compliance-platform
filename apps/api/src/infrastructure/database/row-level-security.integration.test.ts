@@ -38,10 +38,42 @@ const ids = {
   },
   candidates: {
     zaurohAlex: '40000000-0000-4000-8000-000000000001',
+    zaurohMorgan: '40000000-0000-4000-8000-000000000002',
     khaleelAlex: '40000000-0000-4000-8000-000000000003',
+    khaleelJordan: '40000000-0000-4000-8000-000000000004',
     rejectedInsert: '70000000-0000-4000-8000-000000000001',
   },
+  documents: {
+    zaurohRightToWork: '50000000-0000-4000-8000-000000000001',
+    khaleelBackgroundCheck: '50000000-0000-4000-8000-000000000002',
+  },
+  documentVersions: {
+    zaurohRightToWorkV1: '60000000-0000-4000-8000-000000000001',
+    khaleelBackgroundCheckV1: '60000000-0000-4000-8000-000000000002',
+  },
+  idempotencyRecords: {
+    zauroh: '71000000-0000-4000-8000-000000000001',
+    khaleel: '71000000-0000-4000-8000-000000000002',
+    rejectedInsert: '71000000-0000-4000-8000-000000000003',
+  },
+  auditEvents: {
+    zauroh: '72000000-0000-4000-8000-000000000001',
+    khaleel: '72000000-0000-4000-8000-000000000002',
+    acceptedInsert: '72000000-0000-4000-8000-000000000003',
+    rejectedInsert: '72000000-0000-4000-8000-000000000004',
+  },
 } as const;
+
+const zaurohSeedCandidateIds = [
+  ids.candidates.zaurohAlex,
+  ids.candidates.zaurohMorgan,
+] as const;
+
+const seededCandidateIds = [
+  ...zaurohSeedCandidateIds,
+  ids.candidates.khaleelAlex,
+  ids.candidates.khaleelJordan,
+] as const;
 
 const zaurohContext: TenantContext = {
   tenantId: ids.tenants.zauroh,
@@ -82,9 +114,25 @@ beforeAll(async () => {
     Array<{ candidates: bigint; memberships: bigint; documents: bigint }>
   >`
     SELECT
-      (SELECT count(*) FROM public.candidates) AS candidates,
+      (
+        SELECT count(*)
+        FROM public.candidates
+        WHERE id IN (
+          ${ids.candidates.zaurohAlex}::uuid,
+          ${ids.candidates.zaurohMorgan}::uuid,
+          ${ids.candidates.khaleelAlex}::uuid,
+          ${ids.candidates.khaleelJordan}::uuid
+        )
+      ) AS candidates,
       (SELECT count(*) FROM public.tenant_memberships) AS memberships,
-      (SELECT count(*) FROM public.compliance_documents) AS documents
+      (
+        SELECT count(*)
+        FROM public.compliance_documents
+        WHERE id IN (
+          ${ids.documents.zaurohRightToWork}::uuid,
+          ${ids.documents.khaleelBackgroundCheck}::uuid
+        )
+      ) AS documents
   `;
 
   if (
@@ -94,9 +142,68 @@ beforeAll(async () => {
   ) {
     throw new Error('Run pnpm db:seed before RLS integration tests.');
   }
+
+  await adminPrisma.idempotencyRecord.createMany({
+    data: [
+      {
+        id: ids.idempotencyRecords.zauroh,
+        tenantId: ids.tenants.zauroh,
+        membershipId: ids.memberships.zaurohAdmin,
+        operation: 'security:test',
+        key: 'rls-idempotency-zauroh',
+        requestHash: 'a'.repeat(64),
+        responseStatus: 200,
+        responseBody: { result: 'zauroh' },
+      },
+      {
+        id: ids.idempotencyRecords.khaleel,
+        tenantId: ids.tenants.khaleel,
+        membershipId: ids.memberships.khaleelShared,
+        operation: 'security:test',
+        key: 'rls-idempotency-khaleel',
+        requestHash: 'b'.repeat(64),
+        responseStatus: 200,
+        responseBody: { result: 'khaleel' },
+      },
+    ],
+    skipDuplicates: true,
+  });
+  await adminPrisma.auditEvent.createMany({
+    data: [
+      {
+        id: ids.auditEvents.zauroh,
+        tenantId: ids.tenants.zauroh,
+        actorUserId: ids.users.admin,
+        membershipId: ids.memberships.zaurohAdmin,
+        action: 'candidate:read',
+        recordType: 'candidate',
+        recordId: ids.candidates.zaurohAlex,
+        beforeHash: null,
+        afterHash: 'd'.repeat(64),
+      },
+      {
+        id: ids.auditEvents.khaleel,
+        tenantId: ids.tenants.khaleel,
+        actorUserId: ids.users.shared,
+        membershipId: ids.memberships.khaleelShared,
+        action: 'candidate:read',
+        recordType: 'candidate',
+        recordId: ids.candidates.khaleelAlex,
+        beforeHash: null,
+        afterHash: 'e'.repeat(64),
+      },
+    ],
+    skipDuplicates: true,
+  });
 });
 
 afterAll(async () => {
+  await adminPrisma.auditEvent.deleteMany({
+    where: { id: { in: Object.values(ids.auditEvents) } },
+  });
+  await adminPrisma.idempotencyRecord.deleteMany({
+    where: { id: { in: Object.values(ids.idempotencyRecords) } },
+  });
   await adminPrisma.candidate.deleteMany({
     where: { id: ids.candidates.rejectedInsert },
   });
@@ -130,7 +237,9 @@ describe('restricted runtime database role', () => {
           'tenant_memberships',
           'candidates',
           'compliance_documents',
-          'compliance_document_versions'
+          'compliance_document_versions',
+          'idempotency_records',
+          'audit_events'
         )
       ORDER BY class.relname
     `;
@@ -144,7 +253,7 @@ describe('restricted runtime database role', () => {
         rolcreaterole: false,
       },
     ]);
-    expect(tables).toHaveLength(4);
+    expect(tables).toHaveLength(6);
     expect(
       tables.every((table) => table.owner === 'candidate_compliance'),
     ).toBe(true);
@@ -170,17 +279,97 @@ describe('restricted runtime database role', () => {
     `;
 
     expect(grants).toEqual([
+      { table_name: 'audit_events', privilege_type: 'INSERT' },
       { table_name: 'candidates', privilege_type: 'INSERT' },
       { table_name: 'candidates', privilege_type: 'SELECT' },
       { table_name: 'candidates', privilege_type: 'UPDATE' },
       {
         table_name: 'compliance_document_versions',
+        privilege_type: 'INSERT',
+      },
+      {
+        table_name: 'compliance_document_versions',
         privilege_type: 'SELECT',
       },
+      { table_name: 'compliance_documents', privilege_type: 'INSERT' },
       { table_name: 'compliance_documents', privilege_type: 'SELECT' },
+      { table_name: 'compliance_documents', privilege_type: 'UPDATE' },
+      { table_name: 'idempotency_records', privilege_type: 'INSERT' },
+      { table_name: 'idempotency_records', privilege_type: 'SELECT' },
       { table_name: 'tenant_memberships', privilege_type: 'SELECT' },
       { table_name: 'users', privilege_type: 'SELECT' },
     ]);
+
+    const versionUpdateColumns = await adminPrisma.$queryRaw<
+      Array<{ column_name: string; privilege_type: string }>
+    >`
+      SELECT column_name, privilege_type
+      FROM information_schema.role_column_grants
+      WHERE grantee = 'candidate_compliance_app'
+        AND table_schema = 'public'
+        AND table_name = 'compliance_document_versions'
+        AND privilege_type = 'UPDATE'
+      ORDER BY column_name
+    `;
+
+    expect(versionUpdateColumns).toEqual([
+      { column_name: 'status', privilege_type: 'UPDATE' },
+    ]);
+  });
+
+  it('enforces approved-version immutability for the runtime role', async () => {
+    const trigger = await adminPrisma.$queryRaw<
+      Array<{ trigger_name: string; function_name: string; enabled: string }>
+    >`
+      SELECT
+        trigger.tgname AS trigger_name,
+        procedure.proname AS function_name,
+        trigger.tgenabled AS enabled
+      FROM pg_catalog.pg_trigger AS trigger
+      JOIN pg_catalog.pg_proc AS procedure
+        ON procedure.oid = trigger.tgfoid
+      JOIN pg_catalog.pg_class AS class
+        ON class.oid = trigger.tgrelid
+      JOIN pg_catalog.pg_namespace AS namespace
+        ON namespace.oid = class.relnamespace
+      WHERE namespace.nspname = 'public'
+        AND class.relname = 'compliance_document_versions'
+        AND trigger.tgname = 'compliance_document_versions_runtime_transition'
+        AND NOT trigger.tgisinternal
+    `;
+    const before =
+      await adminPrisma.complianceDocumentVersion.findUniqueOrThrow({
+        where: { id: ids.documentVersions.zaurohRightToWorkV1 },
+      });
+
+    expect(trigger).toEqual([
+      {
+        trigger_name: 'compliance_document_versions_runtime_transition',
+        function_name: 'enforce_runtime_document_version_transition',
+        enabled: 'O',
+      },
+    ]);
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.complianceDocumentVersion.update({
+          where: { id: ids.documentVersions.zaurohRightToWorkV1 },
+          data: { expiryDate: new Date('2040-01-01T00:00:00.000Z') },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.complianceDocumentVersion.update({
+          where: { id: ids.documentVersions.zaurohRightToWorkV1 },
+          data: { status: 'DRAFT' },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      adminPrisma.complianceDocumentVersion.findUniqueOrThrow({
+        where: { id: ids.documentVersions.zaurohRightToWorkV1 },
+      }),
+    ).resolves.toEqual(before);
   });
 });
 
@@ -394,7 +583,9 @@ describe('forced tenant row-level security', () => {
           'tenant_memberships',
           'candidates',
           'compliance_documents',
-          'compliance_document_versions'
+          'compliance_document_versions',
+          'idempotency_records',
+          'audit_events'
         )
       ORDER BY class.relname
     `;
@@ -413,20 +604,35 @@ describe('forced tenant row-level security', () => {
       ORDER BY tablename, policyname
     `;
 
-    expect(tables).toHaveLength(4);
+    expect(tables).toHaveLength(6);
     expect(
       tables.every(
         (table) => table.relrowsecurity && table.relforcerowsecurity,
       ),
     ).toBe(true);
-    expect(policies).toHaveLength(4);
-    expect(policies.every((policy) => policy.cmd === 'ALL')).toBe(true);
+    expect(policies).toHaveLength(6);
+    const auditPolicy = policies.find(
+      (policy) => policy.tablename === 'audit_events',
+    );
+    expect(auditPolicy).toMatchObject({
+      policyname: 'audit_events_tenant_insert',
+      cmd: 'INSERT',
+      qual: null,
+    });
+    expect(auditPolicy?.with_check).toContain('app.current_tenant_id');
     expect(
-      policies.every(
-        (policy) =>
-          policy.qual.includes('app.current_tenant_id') &&
-          policy.with_check.includes('app.current_tenant_id'),
-      ),
+      policies
+        .filter((policy) => policy.tablename !== 'audit_events')
+        .every((policy) => policy.cmd === 'ALL'),
+    ).toBe(true);
+    expect(
+      policies
+        .filter((policy) => policy.tablename !== 'audit_events')
+        .every(
+          (policy) =>
+            policy.qual.includes('app.current_tenant_id') &&
+            policy.with_check.includes('app.current_tenant_id'),
+        ),
     ).toBe(true);
   });
 
@@ -441,6 +647,124 @@ describe('forced tenant row-level security', () => {
     await expect(runtimePrisma.tenantMembership.findMany()).resolves.toEqual(
       [],
     );
+    await expect(runtimePrisma.idempotencyRecord.findMany()).resolves.toEqual(
+      [],
+    );
+    await expect(runtimePrisma.auditEvent.findMany()).rejects.toThrow();
+  });
+
+  it('permits tenant-local audit inserts and rejects cross-tenant inserts', async () => {
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.auditEvent.createMany({
+          data: [
+            {
+              id: ids.auditEvents.acceptedInsert,
+              tenantId: ids.tenants.zauroh,
+              actorUserId: zaurohContext.userId,
+              membershipId: zaurohContext.membershipId,
+              action: 'candidate:read',
+              recordType: 'candidate',
+              recordId: ids.candidates.zaurohMorgan,
+              beforeHash: null,
+              afterHash: 'f'.repeat(64),
+            },
+          ],
+        }),
+      ),
+    ).resolves.toEqual({ count: 1 });
+
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.auditEvent.createMany({
+          data: [
+            {
+              id: ids.auditEvents.rejectedInsert,
+              tenantId: ids.tenants.khaleel,
+              actorUserId: zaurohContext.userId,
+              membershipId: zaurohContext.membershipId,
+              action: 'candidate:read',
+              recordType: 'candidate',
+              recordId: ids.candidates.khaleelAlex,
+              beforeHash: null,
+              afterHash: 'f'.repeat(64),
+            },
+          ],
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      adminPrisma.auditEvent.findUnique({
+        where: { id: ids.auditEvents.rejectedInsert },
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it('rejects runtime audit updates and deletes', async () => {
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.auditEvent.update({
+          where: { id: ids.auditEvents.zauroh },
+          data: { afterHash: '0'.repeat(64) },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.auditEvent.delete({
+          where: { id: ids.auditEvents.zauroh },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      adminPrisma.auditEvent.findUniqueOrThrow({
+        where: { id: ids.auditEvents.zauroh },
+      }),
+    ).resolves.toMatchObject({ afterHash: 'd'.repeat(64) });
+  });
+
+  it('isolates idempotency records and rejects cross-tenant inserts', async () => {
+    const [zaurohRecords, khaleelRecords] = await Promise.all([
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.idempotencyRecord.findMany({
+          where: { id: { in: Object.values(ids.idempotencyRecords) } },
+        }),
+      ),
+      withTenantTransaction(runtimePrisma, khaleelContext, (transaction) =>
+        transaction.idempotencyRecord.findMany({
+          where: { id: { in: Object.values(ids.idempotencyRecords) } },
+        }),
+      ),
+    ]);
+
+    expect(zaurohRecords.map(({ id }) => id)).toEqual([
+      ids.idempotencyRecords.zauroh,
+    ]);
+    expect(khaleelRecords.map(({ id }) => id)).toEqual([
+      ids.idempotencyRecords.khaleel,
+    ]);
+
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.idempotencyRecord.create({
+          data: {
+            id: ids.idempotencyRecords.rejectedInsert,
+            tenantId: ids.tenants.khaleel,
+            membershipId: ids.memberships.khaleelShared,
+            operation: 'security:test',
+            key: 'rejected-cross-tenant-insert',
+            requestHash: 'c'.repeat(64),
+            responseStatus: 200,
+            responseBody: { result: 'rejected' },
+          },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      adminPrisma.idempotencyRecord.findUnique({
+        where: { id: ids.idempotencyRecords.rejectedInsert },
+      }),
+    ).resolves.toBeNull();
   });
 
   it('limits unscoped candidate SELECT queries to the active tenant', async () => {
@@ -448,13 +772,19 @@ describe('forced tenant row-level security', () => {
       runtimePrisma,
       zaurohContext,
       (transaction) =>
-        transaction.candidate.findMany({ orderBy: { id: 'asc' } }),
+        transaction.candidate.findMany({
+          where: { id: { in: [...seededCandidateIds] } },
+          orderBy: { id: 'asc' },
+        }),
     );
     const khaleelCandidates = await withTenantTransaction(
       runtimePrisma,
       khaleelContext,
       (transaction) =>
-        transaction.candidate.findMany({ orderBy: { id: 'asc' } }),
+        transaction.candidate.findMany({
+          where: { id: { in: [...seededCandidateIds] } },
+          orderBy: { id: 'asc' },
+        }),
     );
 
     expect(zaurohCandidates).toHaveLength(2);
@@ -571,8 +901,12 @@ describe('forced tenant row-level security', () => {
         zaurohContext,
         async (transaction) => ({
           memberships: await transaction.tenantMembership.findMany(),
-          documents: await transaction.complianceDocument.findMany(),
-          versions: await transaction.complianceDocumentVersion.findMany(),
+          documents: await transaction.complianceDocument.findMany({
+            where: { id: { in: Object.values(ids.documents) } },
+          }),
+          versions: await transaction.complianceDocumentVersion.findMany({
+            where: { id: { in: Object.values(ids.documentVersions) } },
+          }),
         }),
       ),
       withTenantTransaction(
@@ -580,8 +914,12 @@ describe('forced tenant row-level security', () => {
         khaleelContext,
         async (transaction) => ({
           memberships: await transaction.tenantMembership.findMany(),
-          documents: await transaction.complianceDocument.findMany(),
-          versions: await transaction.complianceDocumentVersion.findMany(),
+          documents: await transaction.complianceDocument.findMany({
+            where: { id: { in: Object.values(ids.documents) } },
+          }),
+          versions: await transaction.complianceDocumentVersion.findMany({
+            where: { id: { in: Object.values(ids.documentVersions) } },
+          }),
         }),
       ),
     ]);
@@ -610,13 +948,19 @@ describe('transaction-local tenant setting', () => {
     const zaurohCount = await withTenantTransaction(
       runtimePrisma,
       zaurohContext,
-      (transaction) => transaction.candidate.count(),
+      (transaction) =>
+        transaction.candidate.count({
+          where: { id: { in: [...seededCandidateIds] } },
+        }),
     );
     const withoutContext = await runtimePrisma.candidate.count();
     const khaleelCount = await withTenantTransaction(
       runtimePrisma,
       khaleelContext,
-      (transaction) => transaction.candidate.count(),
+      (transaction) =>
+        transaction.candidate.count({
+          where: { id: { in: [...seededCandidateIds] } },
+        }),
     );
 
     expect(zaurohCount).toBe(2);
@@ -630,13 +974,37 @@ describe('transaction-local tenant setting', () => {
         runtimePrisma,
         zaurohContext,
         async (transaction) => {
-          expect(await transaction.candidate.count()).toBe(2);
+          expect(
+            await transaction.candidate.count({
+              where: { id: { in: [...zaurohSeedCandidateIds] } },
+            }),
+          ).toBe(2);
           throw new Error('intentional rollback');
         },
       ),
     ).rejects.toThrow('intentional rollback');
 
-    await expect(runtimePrisma.candidate.count()).resolves.toBe(0);
+    await expect(
+      runtimePrisma.candidate.count({
+        where: { id: { in: [...zaurohSeedCandidateIds] } },
+      }),
+    ).resolves.toBe(0);
+  });
+
+  it('does not leak idempotency-record context after transaction completion', async () => {
+    const visible = await withTenantTransaction(
+      runtimePrisma,
+      zaurohContext,
+      (transaction) =>
+        transaction.idempotencyRecord.findMany({
+          where: { id: ids.idempotencyRecords.zauroh },
+        }),
+    );
+
+    expect(visible).toHaveLength(1);
+    await expect(runtimePrisma.idempotencyRecord.findMany()).resolves.toEqual(
+      [],
+    );
   });
 
   it('isolates concurrent transactions with different tenants', async () => {
@@ -646,7 +1014,9 @@ describe('transaction-local tenant setting', () => {
         zaurohContext,
         async (transaction) => {
           await new Promise((resolve) => setTimeout(resolve, 25));
-          const rows = await transaction.candidate.findMany();
+          const rows = await transaction.candidate.findMany({
+            where: { id: { in: [...seededCandidateIds] } },
+          });
           return rows.map((row) => row.tenantId);
         },
       ),
@@ -654,7 +1024,9 @@ describe('transaction-local tenant setting', () => {
         runtimePrisma,
         khaleelContext,
         async (transaction) => {
-          const rows = await transaction.candidate.findMany();
+          const rows = await transaction.candidate.findMany({
+            where: { id: { in: [...seededCandidateIds] } },
+          });
           await new Promise((resolve) => setTimeout(resolve, 25));
           return rows.map((row) => row.tenantId);
         },
