@@ -35,6 +35,21 @@ enum ComplianceDocumentStatus {
   @@map("compliance_document_status")
 }
 
+enum VerificationStatus {
+  REQUESTED
+  PENDING
+  VERIFIED
+  FAILED
+
+  @@map("verification_status")
+}
+
+enum OutboxEventType {
+  RIGHT_TO_WORK_VERIFICATION_REQUESTED
+
+  @@map("outbox_event_type")
+}
+
 model Tenant {
   id                 String                      @id @default(uuid()) @db.Uuid
   name               String
@@ -45,6 +60,8 @@ model Tenant {
   documents          ComplianceDocument[]
   versions           ComplianceDocumentVersion[]
   idempotencyRecords IdempotencyRecord[]
+  verificationRequests VerificationRequest[]
+  outboxEvents         OutboxEvent[]
 
   @@map("tenants")
 }
@@ -57,6 +74,7 @@ model User {
   createdAt    DateTime           @default(now()) @map("created_at")
   updatedAt    DateTime           @updatedAt @map("updated_at")
   memberships  TenantMembership[]
+  verificationRequests VerificationRequest[]
 
   @@map("users")
 }
@@ -71,6 +89,7 @@ model TenantMembership {
   user               User                        @relation(fields: [userId], references: [id], onDelete: Restrict)
   createdVersions    ComplianceDocumentVersion[]
   idempotencyRecords IdempotencyRecord[]
+  verificationRequests VerificationRequest[]
 
   @@unique([tenantId, userId])
   @@unique([tenantId, id])
@@ -107,6 +126,7 @@ model ComplianceDocument {
   candidate        Candidate                   @relation(fields: [tenantId, candidateId], references: [tenantId, id], onDelete: Restrict)
   versions         ComplianceDocumentVersion[] @relation("DocumentVersions")
   currentVersion   ComplianceDocumentVersion?  @relation("CurrentDocumentVersion", fields: [tenantId, id, currentVersionId], references: [tenantId, documentId, id], onDelete: Restrict)
+  verificationRequests VerificationRequest[]
 
   @@unique([tenantId, id])
   @@index([tenantId, candidateId, createdAt(sort: Desc), id])
@@ -130,6 +150,7 @@ model ComplianceDocumentVersion {
   supersedes          ComplianceDocumentVersion?  @relation("VersionSupersession", fields: [tenantId, documentId, supersedesVersionId], references: [tenantId, documentId, id], onDelete: Restrict)
   supersededBy        ComplianceDocumentVersion[] @relation("VersionSupersession")
   createdByMembership TenantMembership            @relation(fields: [tenantId, createdBy], references: [tenantId, id], onDelete: Restrict)
+  verificationRequests VerificationRequest[]
 
   @@unique([tenantId, documentId, versionNumber])
   @@unique([tenantId, documentId, id])
@@ -170,4 +191,54 @@ model AuditEvent {
   @@index([tenantId, createdAt(sort: Desc), id])
   @@index([tenantId, recordType, recordId, createdAt(sort: Desc)])
   @@map("audit_events")
+}
+
+model VerificationRequest {
+  id                      String                    @id @default(uuid()) @db.Uuid
+  tenantId                String                    @map("tenant_id") @db.Uuid
+  documentId              String                    @map("document_id") @db.Uuid
+  documentVersionId       String                    @map("document_version_id") @db.Uuid
+  requestedByUserId       String                    @map("requested_by_user_id") @db.Uuid
+  requestedByMembershipId String                    @map("requested_by_membership_id") @db.Uuid
+  status                  VerificationStatus        @default(REQUESTED)
+  attemptCount            Int                       @default(0) @map("attempt_count")
+  failureCode             String?                   @map("failure_code") @db.VarChar(64)
+  requestedAt             DateTime                  @default(now()) @map("requested_at")
+  startedAt               DateTime?                 @map("started_at")
+  completedAt             DateTime?                 @map("completed_at")
+  updatedAt               DateTime                  @updatedAt @map("updated_at")
+  tenant                  Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  document                ComplianceDocument        @relation(fields: [tenantId, documentId], references: [tenantId, id], onDelete: Restrict)
+  documentVersion         ComplianceDocumentVersion @relation(fields: [tenantId, documentId, documentVersionId], references: [tenantId, documentId, id], onDelete: Restrict)
+  requestedByUser         User                      @relation(fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  requestedByMembership   TenantMembership          @relation(fields: [tenantId, requestedByMembershipId], references: [tenantId, id], onDelete: Restrict)
+  outboxEvents            OutboxEvent[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, documentVersionId])
+  @@index([tenantId, documentId, requestedAt(sort: Desc)])
+  @@map("verification_requests")
+}
+
+model OutboxEvent {
+  id                    String              @id @default(uuid()) @db.Uuid
+  tenantId              String              @map("tenant_id") @db.Uuid
+  type                  OutboxEventType
+  verificationRequestId String              @map("verification_request_id") @db.Uuid
+  attempts              Int                 @default(0)
+  maxAttempts           Int                 @default(3) @map("max_attempts")
+  availableAt           DateTime            @default(now()) @map("available_at")
+  lockedAt              DateTime?           @map("locked_at")
+  lockedUntil           DateTime?           @map("locked_until")
+  lockedBy              String?             @map("locked_by") @db.VarChar(100)
+  processedAt           DateTime?           @map("processed_at")
+  lastErrorCode         String?             @map("last_error_code") @db.VarChar(64)
+  createdAt             DateTime            @default(now()) @map("created_at")
+  tenant                Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  verificationRequest   VerificationRequest @relation(fields: [tenantId, verificationRequestId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, verificationRequestId, type])
+  @@index([processedAt, availableAt, lockedUntil, createdAt])
+  @@index([tenantId, createdAt])
+  @@map("outbox_events")
 }

@@ -17,8 +17,11 @@ import {
   idempotencyKeySchema,
   loginRequestSchema,
   problemDetailsSchema,
+  requestVerificationRequestSchema,
   tenantContextSchema,
   updateCandidateRequestSchema,
+  verificationRequestIdParamsSchema,
+  verificationRequestSchema,
 } from './index.js';
 
 describe('idempotencyKeySchema', () => {
@@ -371,5 +374,50 @@ describe('expiring compliance document contracts', () => {
         totalPages: 0,
       },
     });
+  });
+});
+
+describe('verification contracts', () => {
+  const verificationRequest = {
+    id: '70000000-0000-4000-8000-000000000001',
+    documentId: '50000000-0000-4000-8000-000000000001',
+    documentVersionId: '60000000-0000-4000-8000-000000000001',
+    status: 'requested',
+    attemptCount: 0,
+    failureCode: null,
+    requestedAt: '2026-08-14T20:00:00.000Z',
+    startedAt: null,
+    completedAt: null,
+    updatedAt: '2026-08-14T20:00:00.000Z',
+  } as const;
+
+  it('accepts an empty submission body and validates request identifiers', () => {
+    expect(requestVerificationRequestSchema.parse({})).toEqual({});
+    expect(() =>
+      requestVerificationRequestSchema.parse({ status: 'verified' }),
+    ).toThrow();
+    expect(
+      verificationRequestIdParamsSchema.parse({
+        verificationRequestId: verificationRequest.id,
+      }),
+    ).toEqual({ verificationRequestId: verificationRequest.id });
+  });
+
+  it('validates the public state-machine representation', () => {
+    expect(verificationRequestSchema.parse(verificationRequest)).toEqual(
+      verificationRequest,
+    );
+    expect(() =>
+      verificationRequestSchema.parse({
+        ...verificationRequest,
+        status: 'processing',
+      }),
+    ).toThrow();
+    expect(() =>
+      verificationRequestSchema.parse({
+        ...verificationRequest,
+        failureCode: 'raw provider error with spaces',
+      }),
+    ).toThrow();
   });
 });

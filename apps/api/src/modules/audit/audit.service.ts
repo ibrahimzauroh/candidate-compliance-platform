@@ -15,6 +15,11 @@ export const AUDIT_ACTIONS = {
   documentRead: 'document:read',
   documentListRead: 'document:list:read',
   documentExpiryRead: 'document:expiry:read',
+  verificationRequest: 'verification:request',
+  verificationRead: 'verification:read',
+  verificationPending: 'verification:pending',
+  verificationVerified: 'verification:verified',
+  verificationFailed: 'verification:failed',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
@@ -22,6 +27,7 @@ export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
 export const AUDIT_RECORD_TYPES = {
   candidate: 'candidate',
   complianceDocument: 'compliance_document',
+  verificationRequest: 'verification_request',
 } as const;
 
 export type AuditRecordType =
@@ -41,8 +47,10 @@ interface AuditReadInput {
   state: unknown;
 }
 
+type AuditContext = Pick<TenantContext, 'tenantId' | 'userId' | 'membershipId'>;
+
 function auditData(
-  tenantContext: TenantContext,
+  tenantContext: AuditContext,
   input: AuditEventInput,
 ): Prisma.AuditEventCreateManyInput {
   return {
@@ -60,7 +68,7 @@ function auditData(
 
 export async function appendAuditEvent(
   transaction: Prisma.TransactionClient,
-  tenantContext: TenantContext,
+  tenantContext: AuditContext,
   input: AuditEventInput,
 ): Promise<void> {
   await transaction.auditEvent.createMany({
@@ -70,7 +78,7 @@ export async function appendAuditEvent(
 
 export async function appendReadAuditEvents(
   transaction: Prisma.TransactionClient,
-  tenantContext: TenantContext,
+  tenantContext: AuditContext,
   action: AuditAction,
   recordType: AuditRecordType,
   records: AuditReadInput[],

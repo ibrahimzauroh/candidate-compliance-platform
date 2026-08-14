@@ -3,7 +3,7 @@ import { Prisma, type PrismaClient } from '@prisma/client';
 
 export async function withTenantTransaction<T>(
   prisma: PrismaClient,
-  tenantContext: TenantContext,
+  tenantContext: Pick<TenantContext, 'tenantId'>,
   callback: (transaction: Prisma.TransactionClient) => Promise<T>,
 ): Promise<T> {
   return prisma.$transaction(async (transaction) => {

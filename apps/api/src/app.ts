@@ -8,6 +8,7 @@ import { createAuthRouter } from './modules/auth/auth.routes.js';
 import { createCandidateRouter } from './modules/candidates/candidate.routes.js';
 import { createComplianceDocumentRouter } from './modules/compliance-documents/compliance-document.routes.js';
 import { createTenantContextRouter } from './modules/tenant-context/tenant-context.routes.js';
+import { createVerificationRouter } from './modules/verification/verification.routes.js';
 
 interface AppDependencies {
   prisma: PrismaClient;
@@ -33,6 +34,7 @@ export function createApp({
   app.use('/api/v1/context', createTenantContextRouter(prisma, jwtConfig));
   app.use('/api/v1/candidates', createCandidateRouter(prisma, jwtConfig));
   app.use('/api/v1', createComplianceDocumentRouter(prisma, jwtConfig, now));
+  app.use('/api/v1', createVerificationRouter(prisma, jwtConfig));
   app.use(problemDetailsHandler);
 
   return app;

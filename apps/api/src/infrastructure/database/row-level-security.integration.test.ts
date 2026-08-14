@@ -1,5 +1,10 @@
 import type { TenantContext } from '@candidate-compliance/contracts';
-import { PrismaClient, TenantRole } from '@prisma/client';
+import {
+  OutboxEventType,
+  PrismaClient,
+  TenantRole,
+  VerificationStatus,
+} from '@prisma/client';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -61,6 +66,15 @@ const ids = {
     khaleel: '72000000-0000-4000-8000-000000000002',
     acceptedInsert: '72000000-0000-4000-8000-000000000003',
     rejectedInsert: '72000000-0000-4000-8000-000000000004',
+  },
+  verificationRequests: {
+    zauroh: '73000000-0000-4000-8000-000000000001',
+    khaleel: '73000000-0000-4000-8000-000000000002',
+    rejectedInsert: '73000000-0000-4000-8000-000000000003',
+  },
+  outboxEvents: {
+    zauroh: '74000000-0000-4000-8000-000000000001',
+    khaleel: '74000000-0000-4000-8000-000000000002',
   },
 } as const;
 
@@ -195,9 +209,66 @@ beforeAll(async () => {
     ],
     skipDuplicates: true,
   });
+  const completedAt = new Date('2026-08-14T20:00:00.000Z');
+  await adminPrisma.verificationRequest.createMany({
+    data: [
+      {
+        id: ids.verificationRequests.zauroh,
+        tenantId: ids.tenants.zauroh,
+        documentId: ids.documents.zaurohRightToWork,
+        documentVersionId: ids.documentVersions.zaurohRightToWorkV1,
+        requestedByUserId: ids.users.admin,
+        requestedByMembershipId: ids.memberships.zaurohAdmin,
+        status: VerificationStatus.VERIFIED,
+        attemptCount: 1,
+        startedAt: completedAt,
+        completedAt,
+      },
+      {
+        id: ids.verificationRequests.khaleel,
+        tenantId: ids.tenants.khaleel,
+        documentId: ids.documents.khaleelBackgroundCheck,
+        documentVersionId: ids.documentVersions.khaleelBackgroundCheckV1,
+        requestedByUserId: ids.users.shared,
+        requestedByMembershipId: ids.memberships.khaleelShared,
+        status: VerificationStatus.VERIFIED,
+        attemptCount: 1,
+        startedAt: completedAt,
+        completedAt,
+      },
+    ],
+    skipDuplicates: true,
+  });
+  await adminPrisma.outboxEvent.createMany({
+    data: [
+      {
+        id: ids.outboxEvents.zauroh,
+        tenantId: ids.tenants.zauroh,
+        type: OutboxEventType.RIGHT_TO_WORK_VERIFICATION_REQUESTED,
+        verificationRequestId: ids.verificationRequests.zauroh,
+        attempts: 1,
+        processedAt: completedAt,
+      },
+      {
+        id: ids.outboxEvents.khaleel,
+        tenantId: ids.tenants.khaleel,
+        type: OutboxEventType.RIGHT_TO_WORK_VERIFICATION_REQUESTED,
+        verificationRequestId: ids.verificationRequests.khaleel,
+        attempts: 1,
+        processedAt: completedAt,
+      },
+    ],
+    skipDuplicates: true,
+  });
 });
 
 afterAll(async () => {
+  await adminPrisma.outboxEvent.deleteMany({
+    where: { id: { in: Object.values(ids.outboxEvents) } },
+  });
+  await adminPrisma.verificationRequest.deleteMany({
+    where: { id: { in: Object.values(ids.verificationRequests) } },
+  });
   await adminPrisma.auditEvent.deleteMany({
     where: { id: { in: Object.values(ids.auditEvents) } },
   });
@@ -239,7 +310,9 @@ describe('restricted runtime database role', () => {
           'compliance_documents',
           'compliance_document_versions',
           'idempotency_records',
-          'audit_events'
+          'audit_events',
+          'verification_requests',
+          'outbox_events'
         )
       ORDER BY class.relname
     `;
@@ -253,7 +326,7 @@ describe('restricted runtime database role', () => {
         rolcreaterole: false,
       },
     ]);
-    expect(tables).toHaveLength(6);
+    expect(tables).toHaveLength(8);
     expect(
       tables.every((table) => table.owner === 'candidate_compliance'),
     ).toBe(true);
@@ -296,8 +369,12 @@ describe('restricted runtime database role', () => {
       { table_name: 'compliance_documents', privilege_type: 'UPDATE' },
       { table_name: 'idempotency_records', privilege_type: 'INSERT' },
       { table_name: 'idempotency_records', privilege_type: 'SELECT' },
+      { table_name: 'outbox_events', privilege_type: 'INSERT' },
+      { table_name: 'outbox_events', privilege_type: 'SELECT' },
       { table_name: 'tenant_memberships', privilege_type: 'SELECT' },
       { table_name: 'users', privilege_type: 'SELECT' },
+      { table_name: 'verification_requests', privilege_type: 'INSERT' },
+      { table_name: 'verification_requests', privilege_type: 'SELECT' },
     ]);
 
     const versionUpdateColumns = await adminPrisma.$queryRaw<
@@ -314,6 +391,33 @@ describe('restricted runtime database role', () => {
 
     expect(versionUpdateColumns).toEqual([
       { column_name: 'status', privilege_type: 'UPDATE' },
+    ]);
+
+    const workflowUpdateColumns = await adminPrisma.$queryRaw<
+      Array<{ table_name: string; column_name: string }>
+    >`
+      SELECT table_name, column_name
+      FROM information_schema.role_column_grants
+      WHERE grantee = 'candidate_compliance_app'
+        AND table_schema = 'public'
+        AND table_name IN ('verification_requests', 'outbox_events')
+        AND privilege_type = 'UPDATE'
+      ORDER BY table_name, column_name
+    `;
+
+    expect(workflowUpdateColumns).toEqual([
+      { table_name: 'outbox_events', column_name: 'available_at' },
+      { table_name: 'outbox_events', column_name: 'last_error_code' },
+      { table_name: 'outbox_events', column_name: 'locked_at' },
+      { table_name: 'outbox_events', column_name: 'locked_by' },
+      { table_name: 'outbox_events', column_name: 'locked_until' },
+      { table_name: 'outbox_events', column_name: 'processed_at' },
+      { table_name: 'verification_requests', column_name: 'attempt_count' },
+      { table_name: 'verification_requests', column_name: 'completed_at' },
+      { table_name: 'verification_requests', column_name: 'failure_code' },
+      { table_name: 'verification_requests', column_name: 'started_at' },
+      { table_name: 'verification_requests', column_name: 'status' },
+      { table_name: 'verification_requests', column_name: 'updated_at' },
     ]);
   });
 
@@ -565,6 +669,87 @@ describe('validate_tenant_membership bootstrap function', () => {
   });
 });
 
+describe('verification outbox claim function', () => {
+  it('is narrowly executable, admin-owned, and search-path restricted', async () => {
+    const functions = await adminPrisma.$queryRaw<
+      Array<{
+        owner: string;
+        security_definer: boolean;
+        argument_types: string;
+        return_shape: string;
+        settings: string[];
+        public_execute: boolean;
+        runtime_execute: boolean;
+      }>
+    >`
+      SELECT
+        pg_catalog.pg_get_userbyid(procedure.proowner) AS owner,
+        procedure.prosecdef AS security_definer,
+        pg_catalog.pg_get_function_identity_arguments(procedure.oid)
+          AS argument_types,
+        pg_catalog.pg_get_function_result(procedure.oid) AS return_shape,
+        procedure.proconfig AS settings,
+        EXISTS (
+          SELECT 1
+          FROM pg_catalog.aclexplode(
+            COALESCE(
+              procedure.proacl,
+              pg_catalog.acldefault('f', procedure.proowner)
+            )
+          ) AS acl
+          WHERE acl.grantee = 0
+            AND acl.privilege_type = 'EXECUTE'
+        ) AS public_execute,
+        pg_catalog.has_function_privilege(
+          'candidate_compliance_app',
+          procedure.oid,
+          'EXECUTE'
+        ) AS runtime_execute
+      FROM pg_catalog.pg_proc AS procedure
+      JOIN pg_catalog.pg_namespace AS namespace
+        ON namespace.oid = procedure.pronamespace
+      WHERE namespace.nspname = 'public'
+        AND procedure.proname = 'claim_next_verification_outbox_event'
+    `;
+
+    expect(functions).toHaveLength(1);
+    expect(functions[0]).toMatchObject({
+      owner: 'candidate_compliance',
+      security_definer: true,
+      public_execute: false,
+      runtime_execute: true,
+      argument_types: 'worker_identifier text',
+      settings: ['search_path=pg_catalog, pg_temp'],
+    });
+    expect(functions[0]?.return_shape).toBe(
+      'TABLE(outbox_event_id uuid, tenant_id uuid, verification_request_id uuid, attempt_count integer, max_attempts integer, attempts_exhausted boolean)',
+    );
+  });
+
+  it('rejects invalid worker identifiers and does not establish tenant state', async () => {
+    const result = await runtimePrisma.$transaction(async (transaction) => {
+      const claim = await transaction.$queryRaw`
+        SELECT *
+        FROM public.claim_next_verification_outbox_event(
+          ${'invalid worker id'}
+        )
+      `;
+      const setting = await transaction.$queryRaw<
+        Array<{ tenant: string | null }>
+      >`
+        SELECT NULLIF(
+          pg_catalog.current_setting('app.current_tenant_id', true),
+          ''
+        ) AS tenant
+      `;
+
+      return { claim, setting };
+    });
+
+    expect(result).toEqual({ claim: [], setting: [{ tenant: null }] });
+  });
+});
+
 describe('forced tenant row-level security', () => {
   it('is enabled and forced with USING and WITH CHECK policies on every tenant table', async () => {
     const tables = await adminPrisma.$queryRaw<
@@ -585,7 +770,9 @@ describe('forced tenant row-level security', () => {
           'compliance_documents',
           'compliance_document_versions',
           'idempotency_records',
-          'audit_events'
+          'audit_events',
+          'verification_requests',
+          'outbox_events'
         )
       ORDER BY class.relname
     `;
@@ -604,13 +791,13 @@ describe('forced tenant row-level security', () => {
       ORDER BY tablename, policyname
     `;
 
-    expect(tables).toHaveLength(6);
+    expect(tables).toHaveLength(8);
     expect(
       tables.every(
         (table) => table.relrowsecurity && table.relforcerowsecurity,
       ),
     ).toBe(true);
-    expect(policies).toHaveLength(6);
+    expect(policies).toHaveLength(8);
     const auditPolicy = policies.find(
       (policy) => policy.tablename === 'audit_events',
     );
@@ -650,6 +837,10 @@ describe('forced tenant row-level security', () => {
     await expect(runtimePrisma.idempotencyRecord.findMany()).resolves.toEqual(
       [],
     );
+    await expect(runtimePrisma.verificationRequest.findMany()).resolves.toEqual(
+      [],
+    );
+    await expect(runtimePrisma.outboxEvent.findMany()).resolves.toEqual([]);
     await expect(runtimePrisma.auditEvent.findMany()).rejects.toThrow();
   });
 
@@ -763,6 +954,83 @@ describe('forced tenant row-level security', () => {
     await expect(
       adminPrisma.idempotencyRecord.findUnique({
         where: { id: ids.idempotencyRecords.rejectedInsert },
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it('isolates verification requests and outbox events by tenant', async () => {
+    const [zauroh, khaleel] = await Promise.all([
+      withTenantTransaction(
+        runtimePrisma,
+        zaurohContext,
+        async (transaction) => ({
+          requests: await transaction.verificationRequest.findMany({
+            where: { id: { in: Object.values(ids.verificationRequests) } },
+          }),
+          events: await transaction.outboxEvent.findMany({
+            where: { id: { in: Object.values(ids.outboxEvents) } },
+          }),
+        }),
+      ),
+      withTenantTransaction(
+        runtimePrisma,
+        khaleelContext,
+        async (transaction) => ({
+          requests: await transaction.verificationRequest.findMany({
+            where: { id: { in: Object.values(ids.verificationRequests) } },
+          }),
+          events: await transaction.outboxEvent.findMany({
+            where: { id: { in: Object.values(ids.outboxEvents) } },
+          }),
+        }),
+      ),
+    ]);
+
+    expect(zauroh.requests.map(({ id }) => id)).toEqual([
+      ids.verificationRequests.zauroh,
+    ]);
+    expect(zauroh.events.map(({ id }) => id)).toEqual([
+      ids.outboxEvents.zauroh,
+    ]);
+    expect(khaleel.requests.map(({ id }) => id)).toEqual([
+      ids.verificationRequests.khaleel,
+    ]);
+    expect(khaleel.events.map(({ id }) => id)).toEqual([
+      ids.outboxEvents.khaleel,
+    ]);
+
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.verificationRequest.create({
+          data: {
+            id: ids.verificationRequests.rejectedInsert,
+            tenantId: ids.tenants.khaleel,
+            documentId: ids.documents.khaleelBackgroundCheck,
+            documentVersionId: ids.documentVersions.khaleelBackgroundCheckV1,
+            requestedByUserId: ids.users.shared,
+            requestedByMembershipId: ids.memberships.khaleelShared,
+          },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.verificationRequest.update({
+          where: { id: ids.verificationRequests.khaleel },
+          data: { attemptCount: 2 },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.outboxEvent.delete({
+          where: { id: ids.outboxEvents.khaleel },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      adminPrisma.verificationRequest.findUnique({
+        where: { id: ids.verificationRequests.rejectedInsert },
       }),
     ).resolves.toBeNull();
   });
