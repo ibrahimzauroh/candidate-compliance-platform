@@ -137,10 +137,11 @@ The current document surface creates a logical document with version 1, lists a 
 POST  /api/v1/candidates/:candidateId/documents
 GET   /api/v1/candidates/:candidateId/documents
 GET   /api/v1/documents/:documentId
+GET   /api/v1/documents/expiring
 POST  /api/v1/documents/:documentId/versions
 ```
 
-New versions start as `DRAFT`; tenant ownership, creator membership, version number, and current-version selection are server-controlled. See [docs/api.md](docs/api.md) for payloads, pagination, filters, responses, and current lifecycle limitations.
+New versions start as `DRAFT`; tenant ownership, creator membership, version number, and current-version selection are server-controlled. The expiring-documents route returns current versions expiring from today through day 30 for the validated tenant. See [docs/api.md](docs/api.md) for payloads, pagination, filters, responses, and current lifecycle limitations.
 
 ## Running API
 

@@ -56,6 +56,8 @@ Tenant ownership, candidate identity, version numbers, DRAFT status, and creator
 
 Document lists reuse bounded page pagination and deterministic `created_at DESC, id ASC` ordering, with only document type and current-version status filters. Every candidate, document, and version query is transaction-bound and explicitly tenant-scoped, while unchanged PostgreSQL RLS policies independently enforce row isolation.
 
+The expiring-documents query evaluates only the logical document's pointed current version. One request-level clock value is normalised to the UTC calendar date, and inclusive date comparisons cover today through day 30. Results order by current expiry date and document ID, reuse document pagination and filters, and remain explicitly tenant-scoped inside `withTenantTransaction`. The existing indexes are adequate for the assessment dataset; a tenant/expiry index should be evaluated against production query plans and volume rather than added speculatively.
+
 Basic version numbering reads the current maximum and relies on the existing tenant/document/version unique constraint as the final concurrent-write boundary. A colliding request receives a generic `409 Conflict` and may retry; no distributed lock or global serialisation is introduced. Approved-version immutability, correction semantics, audit history, and idempotent replay remain deferred.
 
 ## Evolution

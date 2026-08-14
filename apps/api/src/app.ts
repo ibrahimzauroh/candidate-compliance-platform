@@ -12,9 +12,14 @@ import { createTenantContextRouter } from './modules/tenant-context/tenant-conte
 interface AppDependencies {
   prisma: PrismaClient;
   jwtConfig: JwtConfig;
+  now?: () => Date;
 }
 
-export function createApp({ prisma, jwtConfig }: AppDependencies): Express {
+export function createApp({
+  prisma,
+  jwtConfig,
+  now,
+}: AppDependencies): Express {
   const app = express();
 
   app.disable('x-powered-by');
@@ -27,7 +32,7 @@ export function createApp({ prisma, jwtConfig }: AppDependencies): Express {
   app.use('/api/v1/auth', createAuthRouter(prisma, jwtConfig));
   app.use('/api/v1/context', createTenantContextRouter(prisma, jwtConfig));
   app.use('/api/v1/candidates', createCandidateRouter(prisma, jwtConfig));
-  app.use('/api/v1', createComplianceDocumentRouter(prisma, jwtConfig));
+  app.use('/api/v1', createComplianceDocumentRouter(prisma, jwtConfig, now));
   app.use(problemDetailsHandler);
 
   return app;

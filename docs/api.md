@@ -298,6 +298,76 @@ Relevant errors:
 - `403 Forbidden` — tenant context is unavailable or `document:read` is denied.
 - `404 Not Found` — the document is nonexistent or unavailable in the selected tenant.
 
+## List documents expiring within 30 days
+
+`GET /api/v1/documents/expiring`
+
+Lists the active tenant's logical documents whose current version expires from the current UTC calendar date through 30 calendar days later, inclusive. Requires `document:read`.
+
+Only the version selected by `currentVersion` is evaluated. An older version inside the window does not qualify a document when its current version is outside the window. Null expiry dates and dates before the current UTC date are excluded.
+
+Query parameters:
+
+| Parameter  | Behaviour                                                    |
+| ---------- | ------------------------------------------------------------ |
+| `page`     | Positive integer; defaults to `1` and is capped at `100000`. |
+| `pageSize` | Positive integer; defaults to `20` and is capped at `100`.   |
+| `type`     | Optional exact document-type filter.                         |
+| `status`   | Optional exact filter against the current version.           |
+
+Results are ordered by current expiry date ascending, then document ID ascending.
+
+Success: `200 OK`.
+
+```json
+{
+  "items": [
+    {
+      "id": "51000000-0000-4000-8000-000000000120",
+      "candidateId": "40000000-0000-4000-8000-000000000101",
+      "type": "RIGHT_TO_WORK",
+      "currentVersion": {
+        "id": "61000000-0000-4000-8000-000000000120",
+        "versionNumber": 2,
+        "issueDate": "2026-08-01",
+        "expiryDate": "2026-08-20",
+        "status": "DRAFT",
+        "createdAt": "2026-08-14T10:00:00.000Z"
+      },
+      "createdAt": "2026-07-10T09:00:00.000Z",
+      "updatedAt": "2026-08-14T10:00:00.000Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "pageSize": 20,
+    "totalItems": 1,
+    "totalPages": 1
+  }
+}
+```
+
+An empty result remains successful:
+
+```json
+{
+  "items": [],
+  "pagination": {
+    "page": 1,
+    "pageSize": 20,
+    "totalItems": 0,
+    "totalPages": 0
+  }
+}
+```
+
+Relevant errors:
+
+- `400 Bad Request` — pagination or filter values are invalid.
+- `401 Unauthorized` — authentication failed.
+- `403 Forbidden` — tenant context is unavailable or `document:read` is denied.
+- `500 Internal Server Error` — an unexpected error occurred without exposing internal details.
+
 ## Add a compliance document version
 
 `POST /api/v1/documents/:documentId/versions`
@@ -331,4 +401,4 @@ Relevant errors:
 
 ## Current versioning limitations
 
-Earlier version rows are preserved and no destructive version-update endpoint exists. Approved-version immutability, explicit correction/supersession rules, and audit history are not yet implemented; they remain Phase 3 work. ComplianceDocument deletion, idempotency, expiry queries, and OpenAPI are also deferred.
+Earlier version rows are preserved and no destructive version-update endpoint exists. Approved-version immutability, explicit correction/supersession rules, and audit history are not yet implemented; they remain Phase 3 work. ComplianceDocument deletion, idempotency, and OpenAPI are also deferred. The expiring-documents read is not yet audit-recorded.

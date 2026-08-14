@@ -232,6 +232,20 @@ export type CandidateDocumentListResponse = z.infer<
   typeof candidateDocumentListResponseSchema
 >;
 
+export const expiringComplianceDocumentListQuerySchema =
+  candidateDocumentListQuerySchema;
+
+export type ExpiringComplianceDocumentListQuery = z.infer<
+  typeof expiringComplianceDocumentListQuerySchema
+>;
+
+export const expiringComplianceDocumentListResponseSchema =
+  candidateDocumentListResponseSchema;
+
+export type ExpiringComplianceDocumentListResponse = z.infer<
+  typeof expiringComplianceDocumentListResponseSchema
+>;
+
 export const problemDetailsSchema = z.object({
   type: z.string(),
   title: z.string(),

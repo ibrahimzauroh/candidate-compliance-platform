@@ -6,6 +6,8 @@ import {
   createComplianceDocumentRequestSchema,
   createComplianceDocumentVersionRequestSchema,
   documentIdParamsSchema,
+  expiringComplianceDocumentListQuerySchema,
+  expiringComplianceDocumentListResponseSchema,
   type TenantContext,
 } from '@candidate-compliance/contracts';
 import type { PrismaClient } from '@prisma/client';
@@ -22,6 +24,7 @@ import {
   createComplianceDocument,
   getComplianceDocument,
   listCandidateComplianceDocuments,
+  listExpiringComplianceDocuments,
 } from './compliance-document.service.js';
 
 function tenantContextFrom(request: Request): TenantContext {
@@ -35,6 +38,7 @@ function tenantContextFrom(request: Request): TenantContext {
 export function createComplianceDocumentRouter(
   prisma: PrismaClient,
   jwtConfig: JwtConfig,
+  now: () => Date = () => new Date(),
 ): Router {
   const router = Router();
   const authenticate = createAuthenticationMiddleware(prisma, jwtConfig);
@@ -77,6 +81,28 @@ export function createComplianceDocumentRouter(
       response
         .status(200)
         .json(candidateDocumentListResponseSchema.parse(result));
+    },
+  );
+
+  router.get(
+    '/documents/expiring',
+    authenticate,
+    requireTenantContext,
+    requirePermission(PERMISSIONS.documentRead),
+    async (request, response) => {
+      const query = expiringComplianceDocumentListQuerySchema.parse(
+        request.query,
+      );
+      const result = await listExpiringComplianceDocuments(
+        prisma,
+        tenantContextFrom(request),
+        query,
+        now(),
+      );
+
+      response
+        .status(200)
+        .json(expiringComplianceDocumentListResponseSchema.parse(result));
     },
   );
 

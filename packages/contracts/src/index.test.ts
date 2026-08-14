@@ -9,6 +9,8 @@ import {
   createComplianceDocumentRequestSchema,
   createComplianceDocumentVersionRequestSchema,
   createCandidateRequestSchema,
+  expiringComplianceDocumentListQuerySchema,
+  expiringComplianceDocumentListResponseSchema,
   healthResponseSchema,
   loginRequestSchema,
   problemDetailsSchema,
@@ -271,5 +273,49 @@ describe('compliance document response contracts', () => {
         },
       }).items,
     ).toHaveLength(1);
+  });
+});
+
+describe('expiring compliance document contracts', () => {
+  it('reuses bounded document pagination and current-version filters', () => {
+    expect(
+      expiringComplianceDocumentListQuerySchema.parse({
+        page: '2',
+        pageSize: '10',
+        type: 'RIGHT_TO_WORK',
+        status: 'DRAFT',
+      }),
+    ).toEqual({
+      page: 2,
+      pageSize: 10,
+      type: 'RIGHT_TO_WORK',
+      status: 'DRAFT',
+    });
+
+    expect(() =>
+      expiringComplianceDocumentListQuerySchema.parse({ pageSize: '101' }),
+    ).toThrow();
+  });
+
+  it('uses the existing public document pagination envelope', () => {
+    expect(
+      expiringComplianceDocumentListResponseSchema.parse({
+        items: [],
+        pagination: {
+          page: 1,
+          pageSize: 20,
+          totalItems: 0,
+          totalPages: 0,
+        },
+      }),
+    ).toEqual({
+      items: [],
+      pagination: {
+        page: 1,
+        pageSize: 20,
+        totalItems: 0,
+        totalPages: 0,
+      },
+    });
   });
 });

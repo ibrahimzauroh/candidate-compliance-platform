@@ -5,6 +5,8 @@ import type {
   ComplianceDocumentVersion as ComplianceDocumentVersionDto,
   CreateComplianceDocumentRequest,
   CreateComplianceDocumentVersionRequest,
+  ExpiringComplianceDocumentListQuery,
+  ExpiringComplianceDocumentListResponse,
   TenantContext,
 } from '@candidate-compliance/contracts';
 import {
@@ -194,6 +196,61 @@ export async function getComplianceDocument(
     }
 
     return toDocument(document, document.currentVersion);
+  });
+}
+
+function utcExpiryWindow(now: Date): { start: Date; end: Date } {
+  const start = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 30);
+
+  return { start, end };
+}
+
+export async function listExpiringComplianceDocuments(
+  prisma: PrismaClient,
+  tenantContext: TenantContext,
+  query: ExpiringComplianceDocumentListQuery,
+  now: Date = new Date(),
+): Promise<ExpiringComplianceDocumentListResponse> {
+  return withTenantTransaction(prisma, tenantContext, async (transaction) => {
+    const { start, end } = utcExpiryWindow(now);
+    const where: Prisma.ComplianceDocumentWhereInput = {
+      tenantId: tenantContext.tenantId,
+      ...(query.type ? { type: query.type } : {}),
+      currentVersion: {
+        is: {
+          tenantId: tenantContext.tenantId,
+          expiryDate: {
+            gte: start,
+            lte: end,
+          },
+          ...(query.status ? { status: query.status } : {}),
+        },
+      },
+    };
+    const totalItems = await transaction.complianceDocument.count({ where });
+    const documents = await transaction.complianceDocument.findMany({
+      where,
+      include: { currentVersion: true },
+      orderBy: [{ currentVersion: { expiryDate: 'asc' } }, { id: 'asc' }],
+      skip: (query.page - 1) * query.pageSize,
+      take: query.pageSize,
+    });
+
+    return {
+      items: documents.map((document) =>
+        toDocument(document, document.currentVersion),
+      ),
+      pagination: {
+        page: query.page,
+        pageSize: query.pageSize,
+        totalItems,
+        totalPages: Math.ceil(totalItems / query.pageSize),
+      },
+    };
   });
 }
 
