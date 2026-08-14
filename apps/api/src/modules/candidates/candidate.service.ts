@@ -15,6 +15,12 @@ import {
   candidateNotFoundProblem,
 } from '../../infrastructure/http/problem-details.js';
 import {
+  appendAuditEvent,
+  appendReadAuditEvents,
+  AUDIT_ACTIONS,
+  AUDIT_RECORD_TYPES,
+} from '../audit/audit.service.js';
+import {
   executeIdempotentWrite,
   IDEMPOTENCY_OPERATIONS,
   type IdempotentWriteResult,
@@ -101,8 +107,17 @@ export async function createCandidate(
             roleAppliedFor: input.roleAppliedFor,
           },
         });
+        const created = toCandidate(candidate);
 
-        return toCandidate(candidate);
+        await appendAuditEvent(transaction, tenantContext, {
+          action: AUDIT_ACTIONS.candidateCreate,
+          recordType: AUDIT_RECORD_TYPES.candidate,
+          recordId: created.id,
+          before: null,
+          after: created,
+        });
+
+        return created;
       },
     });
   } catch (error) {
@@ -128,9 +143,21 @@ export async function listCandidates(
       skip: (query.page - 1) * query.pageSize,
       take: query.pageSize,
     });
+    const items = candidates.map(toCandidate);
+
+    await appendReadAuditEvents(
+      transaction,
+      tenantContext,
+      AUDIT_ACTIONS.candidateListRead,
+      AUDIT_RECORD_TYPES.candidate,
+      items.map((candidate) => ({
+        recordId: candidate.id,
+        state: candidate,
+      })),
+    );
 
     return {
-      items: candidates.map(toCandidate),
+      items,
       pagination: {
         page: query.page,
         pageSize: query.pageSize,
@@ -157,8 +184,17 @@ export async function getCandidate(
     if (!candidate) {
       throw candidateNotFoundProblem();
     }
+    const result = toCandidate(candidate);
 
-    return toCandidate(candidate);
+    await appendAuditEvent(transaction, tenantContext, {
+      action: AUDIT_ACTIONS.candidateRead,
+      recordType: AUDIT_RECORD_TYPES.candidate,
+      recordId: result.id,
+      before: null,
+      after: result,
+    });
+
+    return result;
   });
 }
 
@@ -179,6 +215,17 @@ export async function updateCandidate(
       responseStatus: 200,
       parseResponse: (value) => candidateSchema.parse(value),
       execute: async (transaction) => {
+        const beforeCandidate = await transaction.candidate.findFirst({
+          where: {
+            id: candidateId,
+            tenantId: tenantContext.tenantId,
+          },
+        });
+
+        if (!beforeCandidate) {
+          throw candidateNotFoundProblem();
+        }
+
         const data: Prisma.CandidateUpdateManyMutationInput = {};
 
         if (input.fullName !== undefined) {
@@ -213,8 +260,18 @@ export async function updateCandidate(
         if (!candidate) {
           throw candidateNotFoundProblem();
         }
+        const before = toCandidate(beforeCandidate);
+        const after = toCandidate(candidate);
 
-        return toCandidate(candidate);
+        await appendAuditEvent(transaction, tenantContext, {
+          action: AUDIT_ACTIONS.candidateUpdate,
+          recordType: AUDIT_RECORD_TYPES.candidate,
+          recordId: candidateId,
+          before,
+          after,
+        });
+
+        return after;
       },
     });
   } catch (error) {

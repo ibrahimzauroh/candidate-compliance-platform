@@ -153,3 +153,21 @@ model IdempotencyRecord {
   @@index([tenantId, createdAt])
   @@map("idempotency_records")
 }
+
+model AuditEvent {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  actorUserId  String   @map("actor_user_id") @db.Uuid
+  membershipId String   @map("membership_id") @db.Uuid
+  action       String
+  recordType   String   @map("record_type")
+  recordId     String   @map("record_id") @db.Uuid
+  beforeHash   String?  @map("before_hash") @db.Char(64)
+  afterHash    String   @map("after_hash") @db.Char(64)
+  metadata     Json     @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt(sort: Desc), id])
+  @@index([tenantId, recordType, recordId, createdAt(sort: Desc)])
+  @@map("audit_events")
+}

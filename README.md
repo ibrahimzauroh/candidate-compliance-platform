@@ -145,6 +145,12 @@ POST  /api/v1/documents/:documentId/versions
 
 New versions start as `DRAFT`; tenant ownership, creator membership, version number, and current-version selection are server-controlled. Document mutations require an `Idempotency-Key`. The expiring-documents route returns current versions expiring from today through day 30 for the validated tenant. See [docs/api.md](docs/api.md) for payloads, pagination, filters, responses, and current lifecycle limitations.
 
+## Audit ledger
+
+Candidate and compliance-document creates, updates, version creation, retrievals, paginated lists, and expiring-document results append tenant-scoped audit events. Mutation events commit atomically with the domain write and idempotency record; an idempotent replay does not append another mutation event. Events store actor and membership identifiers, the affected record identity, and canonical SHA-256 before/after hashes rather than raw candidate or document state.
+
+List reads append one event for each record actually returned, bounded by the existing maximum page size of 100. Empty pages therefore create no record-level event. The restricted runtime role may only insert audit rows; forced RLS checks tenant ownership, and update/delete privileges are withheld. No audit browsing or export API is implemented.
+
 ## Running API
 
 ```bash
@@ -185,7 +191,7 @@ The local seeded identities and development-only password are documented under S
 
 ## Security notes
 
-No production secrets are stored in the repository. The checked-in database and JWT values are explicitly local-only. Tenant-owned tables are protected by PostgreSQL row-level security for the restricted runtime role. Future tenant-owned routes must apply operation-specific authorisation, and audit controls remain deferred.
+No production secrets are stored in the repository. The checked-in database and JWT values are explicitly local-only. Tenant-owned tables are protected by PostgreSQL row-level security for the restricted runtime role. Future tenant-owned routes must apply operation-specific authorisation and define their audit behaviour explicitly.
 
 ## AI assistant usage
 
@@ -195,6 +201,8 @@ AI was used for implementation acceleration, refactoring suggestions, test gener
 
 - Candidate and ComplianceDocument deletion and OpenAPI remain deferred.
 - Production idempotency-record retention and cleanup policy remains an operational decision.
-- Approved-version immutability, explicit correction/supersession rules, and audit history remain deferred to Phase 3.
+- Audit browsing/export, retention, and external log forwarding are not implemented.
+- Empty list pages do not create an audit row because the ledger records each returned record rather than query intent.
+- Approved-version immutability and explicit correction/supersession rules remain deferred to a later Phase 3 sub-phase.
 - No frontend business screens are present.
 - Production deployment and observability are outside this foundation phase.

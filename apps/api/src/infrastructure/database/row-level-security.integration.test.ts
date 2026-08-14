@@ -56,6 +56,12 @@ const ids = {
     khaleel: '71000000-0000-4000-8000-000000000002',
     rejectedInsert: '71000000-0000-4000-8000-000000000003',
   },
+  auditEvents: {
+    zauroh: '72000000-0000-4000-8000-000000000001',
+    khaleel: '72000000-0000-4000-8000-000000000002',
+    acceptedInsert: '72000000-0000-4000-8000-000000000003',
+    rejectedInsert: '72000000-0000-4000-8000-000000000004',
+  },
 } as const;
 
 const zaurohSeedCandidateIds = [
@@ -162,9 +168,39 @@ beforeAll(async () => {
     ],
     skipDuplicates: true,
   });
+  await adminPrisma.auditEvent.createMany({
+    data: [
+      {
+        id: ids.auditEvents.zauroh,
+        tenantId: ids.tenants.zauroh,
+        actorUserId: ids.users.admin,
+        membershipId: ids.memberships.zaurohAdmin,
+        action: 'candidate:read',
+        recordType: 'candidate',
+        recordId: ids.candidates.zaurohAlex,
+        beforeHash: null,
+        afterHash: 'd'.repeat(64),
+      },
+      {
+        id: ids.auditEvents.khaleel,
+        tenantId: ids.tenants.khaleel,
+        actorUserId: ids.users.shared,
+        membershipId: ids.memberships.khaleelShared,
+        action: 'candidate:read',
+        recordType: 'candidate',
+        recordId: ids.candidates.khaleelAlex,
+        beforeHash: null,
+        afterHash: 'e'.repeat(64),
+      },
+    ],
+    skipDuplicates: true,
+  });
 });
 
 afterAll(async () => {
+  await adminPrisma.auditEvent.deleteMany({
+    where: { id: { in: Object.values(ids.auditEvents) } },
+  });
   await adminPrisma.idempotencyRecord.deleteMany({
     where: { id: { in: Object.values(ids.idempotencyRecords) } },
   });
@@ -202,7 +238,8 @@ describe('restricted runtime database role', () => {
           'candidates',
           'compliance_documents',
           'compliance_document_versions',
-          'idempotency_records'
+          'idempotency_records',
+          'audit_events'
         )
       ORDER BY class.relname
     `;
@@ -216,7 +253,7 @@ describe('restricted runtime database role', () => {
         rolcreaterole: false,
       },
     ]);
-    expect(tables).toHaveLength(5);
+    expect(tables).toHaveLength(6);
     expect(
       tables.every((table) => table.owner === 'candidate_compliance'),
     ).toBe(true);
@@ -242,6 +279,7 @@ describe('restricted runtime database role', () => {
     `;
 
     expect(grants).toEqual([
+      { table_name: 'audit_events', privilege_type: 'INSERT' },
       { table_name: 'candidates', privilege_type: 'INSERT' },
       { table_name: 'candidates', privilege_type: 'SELECT' },
       { table_name: 'candidates', privilege_type: 'UPDATE' },
@@ -475,7 +513,8 @@ describe('forced tenant row-level security', () => {
           'candidates',
           'compliance_documents',
           'compliance_document_versions',
-          'idempotency_records'
+          'idempotency_records',
+          'audit_events'
         )
       ORDER BY class.relname
     `;
@@ -494,20 +533,35 @@ describe('forced tenant row-level security', () => {
       ORDER BY tablename, policyname
     `;
 
-    expect(tables).toHaveLength(5);
+    expect(tables).toHaveLength(6);
     expect(
       tables.every(
         (table) => table.relrowsecurity && table.relforcerowsecurity,
       ),
     ).toBe(true);
-    expect(policies).toHaveLength(5);
-    expect(policies.every((policy) => policy.cmd === 'ALL')).toBe(true);
+    expect(policies).toHaveLength(6);
+    const auditPolicy = policies.find(
+      (policy) => policy.tablename === 'audit_events',
+    );
+    expect(auditPolicy).toMatchObject({
+      policyname: 'audit_events_tenant_insert',
+      cmd: 'INSERT',
+      qual: null,
+    });
+    expect(auditPolicy?.with_check).toContain('app.current_tenant_id');
     expect(
-      policies.every(
-        (policy) =>
-          policy.qual.includes('app.current_tenant_id') &&
-          policy.with_check.includes('app.current_tenant_id'),
-      ),
+      policies
+        .filter((policy) => policy.tablename !== 'audit_events')
+        .every((policy) => policy.cmd === 'ALL'),
+    ).toBe(true);
+    expect(
+      policies
+        .filter((policy) => policy.tablename !== 'audit_events')
+        .every(
+          (policy) =>
+            policy.qual.includes('app.current_tenant_id') &&
+            policy.with_check.includes('app.current_tenant_id'),
+        ),
     ).toBe(true);
   });
 
@@ -525,6 +579,77 @@ describe('forced tenant row-level security', () => {
     await expect(runtimePrisma.idempotencyRecord.findMany()).resolves.toEqual(
       [],
     );
+    await expect(runtimePrisma.auditEvent.findMany()).rejects.toThrow();
+  });
+
+  it('permits tenant-local audit inserts and rejects cross-tenant inserts', async () => {
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.auditEvent.createMany({
+          data: [
+            {
+              id: ids.auditEvents.acceptedInsert,
+              tenantId: ids.tenants.zauroh,
+              actorUserId: zaurohContext.userId,
+              membershipId: zaurohContext.membershipId,
+              action: 'candidate:read',
+              recordType: 'candidate',
+              recordId: ids.candidates.zaurohMorgan,
+              beforeHash: null,
+              afterHash: 'f'.repeat(64),
+            },
+          ],
+        }),
+      ),
+    ).resolves.toEqual({ count: 1 });
+
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.auditEvent.createMany({
+          data: [
+            {
+              id: ids.auditEvents.rejectedInsert,
+              tenantId: ids.tenants.khaleel,
+              actorUserId: zaurohContext.userId,
+              membershipId: zaurohContext.membershipId,
+              action: 'candidate:read',
+              recordType: 'candidate',
+              recordId: ids.candidates.khaleelAlex,
+              beforeHash: null,
+              afterHash: 'f'.repeat(64),
+            },
+          ],
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      adminPrisma.auditEvent.findUnique({
+        where: { id: ids.auditEvents.rejectedInsert },
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it('rejects runtime audit updates and deletes', async () => {
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.auditEvent.update({
+          where: { id: ids.auditEvents.zauroh },
+          data: { afterHash: '0'.repeat(64) },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.auditEvent.delete({
+          where: { id: ids.auditEvents.zauroh },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      adminPrisma.auditEvent.findUniqueOrThrow({
+        where: { id: ids.auditEvents.zauroh },
+      }),
+    ).resolves.toMatchObject({ afterHash: 'd'.repeat(64) });
   });
 
   it('isolates idempotency records and rejects cross-tenant inserts', async () => {

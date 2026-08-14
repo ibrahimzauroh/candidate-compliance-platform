@@ -43,6 +43,14 @@ Protected routes can return RFC 9457-style Problem Details with content type `ap
 }
 ```
 
+## Audit behaviour
+
+Successful candidate and compliance-document creates, updates, version creation, retrievals, list results, and expiring-document results append tenant-scoped audit events. Creates have a null before hash and a canonical SHA-256 after hash. Updates and version creation hash the before and after public state, while reads have a null before hash and hash the returned state.
+
+Mutation events are written in the same tenant transaction as the domain mutation and idempotency result. Failed operations roll back without an event, and replaying an already committed idempotent mutation does not append a duplicate. List endpoints append one event per returned record, bounded by `pageSize <= 100`; an empty page has no record to audit and therefore appends no event.
+
+The ledger stores tenant, actor, membership, action, record identity, hashes, timestamp, and an empty metadata object unless non-PII metadata becomes necessary. It does not store the public response or raw candidate/document fields. There is no audit browsing or export endpoint.
+
 ## Candidate representation
 
 Successful create, retrieve, and update responses use this shape:
@@ -428,4 +436,4 @@ Relevant errors:
 
 ## Current versioning limitations
 
-Earlier version rows are preserved and no destructive version-update endpoint exists. Approved-version immutability, explicit correction/supersession rules, and audit history are not yet implemented; they remain Phase 3 work. ComplianceDocument deletion and OpenAPI are also deferred. The expiring-documents read is not yet audit-recorded.
+Earlier version rows are preserved and no destructive version-update endpoint exists. Approved-version immutability and explicit correction/supersession rules are not yet implemented; they remain later Phase 3 work. ComplianceDocument deletion, audit browsing/export, and OpenAPI are also deferred.

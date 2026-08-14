@@ -25,6 +25,12 @@ import {
   documentVersionConflictProblem,
 } from '../../infrastructure/http/problem-details.js';
 import {
+  appendAuditEvent,
+  appendReadAuditEvents,
+  AUDIT_ACTIONS,
+  AUDIT_RECORD_TYPES,
+} from '../audit/audit.service.js';
+import {
   executeIdempotentWrite,
   IDEMPOTENCY_OPERATIONS,
   type IdempotentWriteResult,
@@ -156,8 +162,17 @@ export async function createComplianceDocument(
         },
         data: { currentVersionId: version.id },
       });
+      const created = toDocument(currentDocument, version);
 
-      return toDocument(currentDocument, version);
+      await appendAuditEvent(transaction, tenantContext, {
+        action: AUDIT_ACTIONS.documentCreate,
+        recordType: AUDIT_RECORD_TYPES.complianceDocument,
+        recordId: created.id,
+        before: null,
+        after: created,
+      });
+
+      return created;
     },
   });
 }
@@ -194,11 +209,23 @@ export async function listCandidateComplianceDocuments(
       skip: (query.page - 1) * query.pageSize,
       take: query.pageSize,
     });
+    const items = documents.map((document) =>
+      toDocument(document, document.currentVersion),
+    );
+
+    await appendReadAuditEvents(
+      transaction,
+      tenantContext,
+      AUDIT_ACTIONS.documentListRead,
+      AUDIT_RECORD_TYPES.complianceDocument,
+      items.map((document) => ({
+        recordId: document.id,
+        state: document,
+      })),
+    );
 
     return {
-      items: documents.map((document) =>
-        toDocument(document, document.currentVersion),
-      ),
+      items,
       pagination: {
         page: query.page,
         pageSize: query.pageSize,
@@ -226,8 +253,17 @@ export async function getComplianceDocument(
     if (!document) {
       throw complianceDocumentNotFoundProblem();
     }
+    const result = toDocument(document, document.currentVersion);
 
-    return toDocument(document, document.currentVersion);
+    await appendAuditEvent(transaction, tenantContext, {
+      action: AUDIT_ACTIONS.documentRead,
+      recordType: AUDIT_RECORD_TYPES.complianceDocument,
+      recordId: result.id,
+      before: null,
+      after: result,
+    });
+
+    return result;
   });
 }
 
@@ -271,11 +307,23 @@ export async function listExpiringComplianceDocuments(
       skip: (query.page - 1) * query.pageSize,
       take: query.pageSize,
     });
+    const items = documents.map((document) =>
+      toDocument(document, document.currentVersion),
+    );
+
+    await appendReadAuditEvents(
+      transaction,
+      tenantContext,
+      AUDIT_ACTIONS.documentExpiryRead,
+      AUDIT_RECORD_TYPES.complianceDocument,
+      items.map((document) => ({
+        recordId: document.id,
+        state: document,
+      })),
+    );
 
     return {
-      items: documents.map((document) =>
-        toDocument(document, document.currentVersion),
-      ),
+      items,
       pagination: {
         page: query.page,
         pageSize: query.pageSize,
@@ -340,6 +388,7 @@ export async function addComplianceDocumentVersion(
         if (!currentVersion || latestVersion._max.versionNumber === null) {
           throw new Error('Compliance document current version is missing.');
         }
+        const before = toDocument(document, currentVersion);
 
         const version = await transaction.complianceDocumentVersion.create({
           data: {
@@ -362,8 +411,17 @@ export async function addComplianceDocumentVersion(
           },
           data: { currentVersionId: version.id },
         });
+        const after = toDocument(currentDocument, version);
 
-        return toDocument(currentDocument, version);
+        await appendAuditEvent(transaction, tenantContext, {
+          action: AUDIT_ACTIONS.documentVersionCreate,
+          recordType: AUDIT_RECORD_TYPES.complianceDocument,
+          recordId: documentId,
+          before,
+          after,
+        });
+
+        return after;
       },
     });
   } catch (error) {

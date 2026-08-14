@@ -3,8 +3,8 @@ import {
   type TenantContext,
 } from '@candidate-compliance/contracts';
 import { Prisma, type PrismaClient } from '@prisma/client';
-import { createHash } from 'node:crypto';
 
+import { canonicalHash } from '../../infrastructure/crypto/canonical-hash.js';
 import { withTenantTransaction } from '../../infrastructure/database/with-tenant-transaction.js';
 import {
   idempotencyKeyConflictProblem,
@@ -57,29 +57,6 @@ export function parseIdempotencyKey(value: string | undefined): string {
   }
 
   return parsed.data;
-}
-
-function canonicalise(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(canonicalise);
-  }
-
-  if (value !== null && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([, entry]) => entry !== undefined)
-        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-        .map(([key, entry]) => [key, canonicalise(entry)]),
-    );
-  }
-
-  return value;
-}
-
-function requestHash(input: unknown): string {
-  return createHash('sha256')
-    .update(JSON.stringify(canonicalise(input)))
-    .digest('hex');
 }
 
 function storedResponse<T>(
@@ -140,7 +117,7 @@ export async function executeIdempotentWrite<T>({
   parseResponse,
   execute,
 }: IdempotentWriteOptions<T>): Promise<IdempotentWriteResult<T>> {
-  const expectedHash = requestHash(fingerprintInput);
+  const expectedHash = canonicalHash(fingerprintInput);
 
   try {
     return await withTenantTransaction(
