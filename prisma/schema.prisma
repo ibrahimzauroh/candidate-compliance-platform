@@ -3,6 +3,132 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+enum TenantRole {
+  ADMIN
+  RECRUITER
+  COMPLIANCE_OFFICER
+  VIEWER
+
+  @@map("tenant_role")
+}
+
+enum ComplianceDocumentType {
+  RIGHT_TO_WORK
+  BACKGROUND_CHECK
+  PROFESSIONAL_CERTIFICATION
+  OTHER
+
+  @@map("compliance_document_type")
+}
+
+enum ComplianceDocumentStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+
+  @@map("compliance_document_status")
+}
+
+model Tenant {
+  id          String                      @id @default(uuid()) @db.Uuid
+  name        String
+  createdAt   DateTime                    @default(now()) @map("created_at")
+  updatedAt   DateTime                    @updatedAt @map("updated_at")
+  memberships TenantMembership[]
+  candidates  Candidate[]
+  documents   ComplianceDocument[]
+  versions    ComplianceDocumentVersion[]
+
+  @@map("tenants")
+}
+
+model User {
+  id           String             @id @default(uuid()) @db.Uuid
+  email        String             @unique @db.Citext
+  passwordHash String             @map("password_hash")
+  displayName  String             @map("display_name")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+  memberships  TenantMembership[]
+
+  @@map("users")
+}
+
+model TenantMembership {
+  id              String                      @id @default(uuid()) @db.Uuid
+  tenantId        String                      @map("tenant_id") @db.Uuid
+  userId          String                      @map("user_id") @db.Uuid
+  role            TenantRole
+  createdAt       DateTime                    @default(now()) @map("created_at")
+  tenant          Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user            User                        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdVersions ComplianceDocumentVersion[]
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+  @@map("tenant_memberships")
+}
+
+model Candidate {
+  id             String               @id @default(uuid()) @db.Uuid
+  tenantId       String               @map("tenant_id") @db.Uuid
+  fullName       String               @map("full_name")
+  email          String               @db.Citext
+  roleAppliedFor String               @map("role_applied_for")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+  tenant         Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  documents      ComplianceDocument[]
+
+  @@unique([tenantId, email])
+  @@unique([tenantId, id])
+  @@index([tenantId, createdAt(sort: Desc), id])
+  @@map("candidates")
+}
+
+model ComplianceDocument {
+  id               String                      @id @default(uuid()) @db.Uuid
+  tenantId         String                      @map("tenant_id") @db.Uuid
+  candidateId      String                      @map("candidate_id") @db.Uuid
+  type             ComplianceDocumentType
+  currentVersionId String?                     @map("current_version_id") @db.Uuid
+  createdAt        DateTime                    @default(now()) @map("created_at")
+  updatedAt        DateTime                    @updatedAt @map("updated_at")
+  tenant           Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  candidate        Candidate                   @relation(fields: [tenantId, candidateId], references: [tenantId, id], onDelete: Restrict)
+  versions         ComplianceDocumentVersion[] @relation("DocumentVersions")
+  currentVersion   ComplianceDocumentVersion?  @relation("CurrentDocumentVersion", fields: [tenantId, id, currentVersionId], references: [tenantId, documentId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, candidateId, createdAt(sort: Desc), id])
+  @@map("compliance_documents")
+}
+
+model ComplianceDocumentVersion {
+  id                  String                      @id @default(uuid()) @db.Uuid
+  tenantId            String                      @map("tenant_id") @db.Uuid
+  documentId          String                      @map("document_id") @db.Uuid
+  versionNumber       Int                         @map("version_number")
+  issueDate           DateTime?                   @map("issue_date") @db.Date
+  expiryDate          DateTime?                   @map("expiry_date") @db.Date
+  status              ComplianceDocumentStatus    @default(DRAFT)
+  supersedesVersionId String?                     @map("supersedes_version_id") @db.Uuid
+  createdBy           String                      @map("created_by") @db.Uuid
+  createdAt           DateTime                    @default(now()) @map("created_at")
+  tenant              Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  document            ComplianceDocument          @relation("DocumentVersions", fields: [tenantId, documentId], references: [tenantId, id], onDelete: Restrict)
+  currentForDocuments ComplianceDocument[]        @relation("CurrentDocumentVersion")
+  supersedes          ComplianceDocumentVersion?  @relation("VersionSupersession", fields: [tenantId, documentId, supersedesVersionId], references: [tenantId, documentId, id], onDelete: Restrict)
+  supersededBy        ComplianceDocumentVersion[] @relation("VersionSupersession")
+  createdByMembership TenantMembership            @relation(fields: [tenantId, createdBy], references: [tenantId, userId], onDelete: Restrict)
+
+  @@unique([tenantId, documentId, versionNumber])
+  @@unique([tenantId, documentId, id])
+  @@map("compliance_document_versions")
 }

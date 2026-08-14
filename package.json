@@ -19,15 +19,21 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "pretypecheck": "corepack pnpm --filter @candidate-compliance/contracts run build",
-    "typecheck": "corepack pnpm --recursive --if-present run typecheck",
+    "typecheck": "tsc -p prisma/tsconfig.json && corepack pnpm --recursive --if-present run typecheck",
     "db:check": "corepack pnpm --filter @candidate-compliance/api run db:check",
     "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev"
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "prisma db seed"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "devDependencies": {
     "@eslint/js": "9.39.2",
     "@prisma/client": "6.19.0",
+    "@types/bcrypt": "6.0.0",
     "@types/node": "24.13.3",
+    "bcrypt": "6.0.0",
     "eslint": "9.39.2",
     "eslint-config-next": "16.2.12",
     "globals": "16.5.0",
