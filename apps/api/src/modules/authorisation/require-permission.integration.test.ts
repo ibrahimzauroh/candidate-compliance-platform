@@ -93,6 +93,20 @@ app.post(
   requirePermission(PERMISSIONS.documentCorrect),
   testHandler,
 );
+app.post(
+  '/test/misordered-permission',
+  requirePermission(PERMISSIONS.candidateRead),
+  authenticate,
+  requireTenantContext,
+  testHandler,
+);
+app.post(
+  '/test/misordered-tenant-context',
+  requireTenantContext,
+  authenticate,
+  requirePermission(PERMISSIONS.candidateRead),
+  testHandler,
+);
 app.use(problemDetailsHandler);
 
 function tokenFor(
@@ -394,5 +408,25 @@ describe('operation-specific authorisation middleware', () => {
 
     expect(response.status).toBe(403);
     expect(response.body).toEqual(permissionForbiddenProblem);
+  });
+
+  it('fails closed when permission middleware runs before tenant context', async () => {
+    const response = await request(app)
+      .post('/test/misordered-permission')
+      .set('Authorization', `Bearer ${tokenFor(ids.users.admin)}`)
+      .set('X-Tenant-Id', ids.tenants.zauroh);
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual(permissionForbiddenProblem);
+  });
+
+  it('fails closed when tenant context runs before authentication', async () => {
+    const response = await request(app)
+      .post('/test/misordered-tenant-context')
+      .set('Authorization', `Bearer ${tokenFor(ids.users.admin)}`)
+      .set('X-Tenant-Id', ids.tenants.zauroh);
+
+    expect(response.status).toBe(401);
+    expect(response.body).toEqual(authenticationRequiredProblem);
   });
 });

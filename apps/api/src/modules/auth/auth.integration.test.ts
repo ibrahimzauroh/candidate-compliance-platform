@@ -148,6 +148,27 @@ describe('GET /api/v1/auth/me', () => {
     );
   });
 
+  it('does not allow client identity values to replace the token subject', async () => {
+    const loginResponse = await login('admin@iza.com');
+    const response = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${loginResponse.body.accessToken}`)
+      .set('X-User-Id', '20000000-0000-4000-8000-000000000004')
+      .set('X-User-Email', 'shared@iza.com')
+      .query({
+        userId: '20000000-0000-4000-8000-000000000004',
+        email: 'shared@iza.com',
+      })
+      .send({
+        userId: '20000000-0000-4000-8000-000000000004',
+        email: 'shared@iza.com',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(loginResponse.body.user);
+    expect(response.body.email).toBe('admin@iza.com');
+  });
+
   it('returns 401 when the token is missing', async () => {
     const response = await request(app).get('/api/v1/auth/me');
 

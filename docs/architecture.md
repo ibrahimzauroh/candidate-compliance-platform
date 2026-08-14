@@ -20,13 +20,27 @@ Authentication establishes only the current platform user identity. Login verifi
 
 Authentication does not select a tenant or place memberships, roles, or permissions in the token. A tenant-scoped request supplies `X-Tenant-Id` as untrusted input. After authentication, the API validates that exact tenant ID against the current user's PostgreSQL membership and attaches a request-level tenant context containing only the selected membership ID and role.
 
-Tenant memberships are themselves protected by RLS, creating a bootstrap boundary before normal tenant context exists. A narrowly scoped, admin-owned `SECURITY DEFINER` function accepts one authenticated user ID and one requested tenant ID and returns only that exact membership. Its fixed search path, static query, revoked public execution, and runtime-only execute grant prevent it from acting as a general RLS bypass.
+Tenant memberships are themselves protected by RLS, creating a bootstrap boundary before normal tenant context exists. A narrowly scoped, admin-owned `SECURITY DEFINER` function accepts one authenticated user ID and one requested tenant ID and returns only that exact membership. Its fixed search path, static query, revoked public execution, and runtime-only execute grant prevent it from acting as a general RLS bypass. Because `SECURITY DEFINER` executes with owner privileges, this function must remain small, fixed, reviewed, and tested.
 
 The schema-owner connection applies migrations and seeds, while the API uses a separate non-owner, non-superuser runtime role without `BYPASSRLS`. Tenant-owned work runs through `withTenantTransaction`, which sets `app.current_tenant_id` transaction-locally before the callback receives its transaction-bound Prisma client. Forced PostgreSQL RLS protects memberships, candidates, documents, and document versions when application query scoping is accidentally omitted. Explicit application tenant scope and RLS remain complementary defence-in-depth controls.
 
 Global user authentication remains outside tenant RLS. Operation-specific authorisation evaluates the validated tenant context's single membership role against an explicit in-code permission policy. A valid membership grants only the operations listed for that role; roles from other memberships are neither selected nor merged. `ADMIN` is evaluated through the same policy mechanism as every other role rather than bypassing it.
 
 Authorisation and PostgreSQL RLS remain separate controls. Authorisation decides whether the selected membership may perform an operation, while RLS independently limits which tenant-owned rows a transaction can access.
+
+The complete protected request boundary is:
+
+```text
+HTTP request
+  -> authentication
+  -> validated tenant membership and context
+  -> operation-specific authorisation
+  -> request validation and domain service
+  -> tenant-scoped transaction
+  -> PostgreSQL RLS
+```
+
+Routes must compose these middleware layers in this order. Each layer fails closed when its required trusted context is absent; route composition remains explicit so the required permission is visible beside each operation.
 
 ## Evolution
 

@@ -126,6 +126,6 @@ export const problemDetailsHandler: ErrorRequestHandler = (
     return;
   }
 
-  console.error('Unexpected request error', error);
+  console.error('Unexpected request error');
   sendProblem(response, internalErrorProblem());
 };

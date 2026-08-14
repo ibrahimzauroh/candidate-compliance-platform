@@ -527,6 +527,43 @@ describe('forced tenant row-level security', () => {
     expect(candidate.tenantId).toBe(ids.tenants.zauroh);
   });
 
+  it('blocks updating a known candidate from another tenant', async () => {
+    const before = await adminPrisma.candidate.findUniqueOrThrow({
+      where: { id: ids.candidates.khaleelAlex },
+    });
+
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.candidate.update({
+          where: { id: ids.candidates.khaleelAlex },
+          data: { fullName: 'Rejected Cross-Tenant Update' },
+        }),
+      ),
+    ).rejects.toThrow();
+
+    await expect(
+      adminPrisma.candidate.findUniqueOrThrow({
+        where: { id: ids.candidates.khaleelAlex },
+      }),
+    ).resolves.toEqual(before);
+  });
+
+  it('blocks deleting a known candidate from another tenant', async () => {
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.candidate.delete({
+          where: { id: ids.candidates.khaleelAlex },
+        }),
+      ),
+    ).rejects.toThrow();
+
+    await expect(
+      adminPrisma.candidate.findUnique({
+        where: { id: ids.candidates.khaleelAlex },
+      }),
+    ).resolves.not.toBeNull();
+  });
+
   it('isolates memberships, documents, and versions by active tenant', async () => {
     const [zauroh, khaleel] = await Promise.all([
       withTenantTransaction(

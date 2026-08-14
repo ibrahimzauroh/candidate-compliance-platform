@@ -146,7 +146,7 @@ pnpm build
 
 ## OpenAPI
 
-An OpenAPI 3 document will be introduced with the first versioned business endpoints. The unversioned `GET /health` endpoint is the only API route in this phase.
+An OpenAPI 3 document will be introduced with the first versioned business endpoints. The current API exposes the unversioned health check plus versioned login, authenticated identity, and validated tenant-context routes; it does not yet expose tenant-owned business endpoints.
 
 ## Demo users
 
