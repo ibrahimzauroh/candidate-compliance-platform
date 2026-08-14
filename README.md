@@ -20,7 +20,7 @@ The project is a pnpm monorepo with an Express API, a Next.js web application, s
 
 ## Prerequisites
 
-- Node.js 20.9 or later
+- Node.js 24 or later
 - Corepack
 - Docker Desktop or another Docker installation with Compose v2
 
@@ -58,6 +58,8 @@ Apply existing migrations or create a development migration after an approved sc
 ```bash
 pnpm db:migrate
 ```
+
+Prisma migrations are treated as forward-only in this project; a production rollback requires an explicitly reviewed compensating migration or approved database recovery procedure, not a destructive reset command.
 
 ## Seed data
 
@@ -116,7 +118,7 @@ The resulting role belongs only to the selected membership. Tenant-owned databas
 
 ## Candidate API
 
-Candidate routes require both a Bearer access token and validated `X-Tenant-Id` header:
+Candidate routes require both a Bearer access token and validated `X-Tenant-Id` header. Candidate mutations also require an `Idempotency-Key` header:
 
 ```text
 POST   /api/v1/candidates
@@ -125,7 +127,7 @@ GET    /api/v1/candidates/:candidateId
 PATCH  /api/v1/candidates/:candidateId
 ```
 
-Lists accept bounded `page` and `pageSize` pagination plus optional `search`, exact `email`, and partial `roleAppliedFor` filters. Candidate ownership always comes from the validated tenant context; `tenantId` is neither accepted in write bodies nor exposed in candidate responses. Candidate writes are not idempotent yet because idempotency is deferred to Sub-phase 2D.
+Lists accept bounded `page` and `pageSize` pagination plus optional `search`, exact `email`, and partial `roleAppliedFor` filters. Candidate ownership always comes from the validated tenant context; `tenantId` is neither accepted in write bodies nor exposed in candidate responses. An identical mutation retry with the same idempotency key replays its original response, while reuse for different input returns `409 Conflict`.
 
 See [docs/api.md](docs/api.md) for the current developer-facing Candidate API reference. The implemented Candidate surface is create, list, retrieve, and update. Candidate deletion remains outstanding, and Phase 2 is not fully aligned with the tenant-scoped CRUD requirement until its policy is decided after reviewing compliance-document lifecycle and audit-history implications.
 
@@ -141,7 +143,7 @@ GET   /api/v1/documents/expiring
 POST  /api/v1/documents/:documentId/versions
 ```
 
-New versions start as `DRAFT`; tenant ownership, creator membership, version number, and current-version selection are server-controlled. The expiring-documents route returns current versions expiring from today through day 30 for the validated tenant. See [docs/api.md](docs/api.md) for payloads, pagination, filters, responses, and current lifecycle limitations.
+New versions start as `DRAFT`; tenant ownership, creator membership, version number, and current-version selection are server-controlled. Document mutations require an `Idempotency-Key`. The expiring-documents route returns current versions expiring from today through day 30 for the validated tenant. See [docs/api.md](docs/api.md) for payloads, pagination, filters, responses, and current lifecycle limitations.
 
 ## Running API
 
@@ -191,7 +193,8 @@ AI was used for implementation acceleration, refactoring suggestions, test gener
 
 ## Known limitations
 
-- Candidate and ComplianceDocument deletion, idempotency, and OpenAPI remain deferred.
+- Candidate and ComplianceDocument deletion and OpenAPI remain deferred.
+- Production idempotency-record retention and cleanup policy remains an operational decision.
 - Approved-version immutability, explicit correction/supersession rules, and audit history remain deferred to Phase 3.
 - No frontend business screens are present.
 - Production deployment and observability are outside this foundation phase.

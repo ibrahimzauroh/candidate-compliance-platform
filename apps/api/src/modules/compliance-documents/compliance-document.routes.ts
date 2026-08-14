@@ -18,6 +18,7 @@ import { permissionForbiddenProblem } from '../../infrastructure/http/problem-de
 import { createAuthenticationMiddleware } from '../auth/authenticate.middleware.js';
 import { PERMISSIONS } from '../authorisation/permissions.js';
 import { requirePermission } from '../authorisation/require-permission.middleware.js';
+import { parseIdempotencyKey } from '../idempotency/idempotency.service.js';
 import { createRequireTenantContextMiddleware } from '../tenant-context/require-tenant-context.middleware.js';
 import {
   addComplianceDocumentVersion,
@@ -52,14 +53,20 @@ export function createComplianceDocumentRouter(
     async (request, response) => {
       const { candidateId } = candidateIdParamsSchema.parse(request.params);
       const input = createComplianceDocumentRequestSchema.parse(request.body);
-      const document = await createComplianceDocument(
+      const idempotencyKey = parseIdempotencyKey(
+        request.header('idempotency-key'),
+      );
+      const result = await createComplianceDocument(
         prisma,
         tenantContextFrom(request),
         candidateId,
         input,
+        idempotencyKey,
       );
 
-      response.status(201).json(complianceDocumentSchema.parse(document));
+      response
+        .status(result.status)
+        .json(complianceDocumentSchema.parse(result.body));
     },
   );
 
@@ -133,14 +140,20 @@ export function createComplianceDocumentRouter(
       const input = createComplianceDocumentVersionRequestSchema.parse(
         request.body,
       );
-      const document = await addComplianceDocumentVersion(
+      const idempotencyKey = parseIdempotencyKey(
+        request.header('idempotency-key'),
+      );
+      const result = await addComplianceDocumentVersion(
         prisma,
         tenantContextFrom(request),
         documentId,
         input,
+        idempotencyKey,
       );
 
-      response.status(201).json(complianceDocumentSchema.parse(document));
+      response
+        .status(result.status)
+        .json(complianceDocumentSchema.parse(result.body));
     },
   );
 

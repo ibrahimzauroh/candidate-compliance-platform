@@ -12,11 +12,26 @@ import {
   expiringComplianceDocumentListQuerySchema,
   expiringComplianceDocumentListResponseSchema,
   healthResponseSchema,
+  idempotencyKeySchema,
   loginRequestSchema,
   problemDetailsSchema,
   tenantContextSchema,
   updateCandidateRequestSchema,
 } from './index.js';
+
+describe('idempotencyKeySchema', () => {
+  it('trims and accepts bounded opaque keys', () => {
+    expect(idempotencyKeySchema.parse(' request_01:/retry+2 ')).toBe(
+      'request_01:/retry+2',
+    );
+  });
+
+  it('rejects blank, oversized, or unsafe keys', () => {
+    expect(() => idempotencyKeySchema.parse('   ')).toThrow();
+    expect(() => idempotencyKeySchema.parse('a'.repeat(201))).toThrow();
+    expect(() => idempotencyKeySchema.parse('contains a space')).toThrow();
+  });
+});
 
 describe('healthResponseSchema', () => {
   it('accepts the API health response', () => {

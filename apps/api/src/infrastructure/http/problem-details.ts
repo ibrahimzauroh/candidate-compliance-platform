@@ -101,6 +101,35 @@ export function documentVersionConflictProblem(): ProblemError {
   });
 }
 
+export function idempotencyKeyRequiredProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Bad Request',
+    status: 400,
+    detail: 'Idempotency-Key header is required.',
+  });
+}
+
+export function invalidIdempotencyKeyProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Bad Request',
+    status: 400,
+    detail:
+      'Idempotency-Key must contain 1 to 200 supported opaque characters.',
+  });
+}
+
+export function idempotencyKeyConflictProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Conflict',
+    status: 409,
+    detail:
+      'This Idempotency-Key has already been used for a different request.',
+  });
+}
+
 function invalidRequestProblem(error: z.ZodError): ProblemDetails {
   return {
     type: 'about:blank',

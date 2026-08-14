@@ -6,6 +6,7 @@ import type {
   TenantContext,
   UpdateCandidateRequest,
 } from '@candidate-compliance/contracts';
+import { candidateSchema } from '@candidate-compliance/contracts';
 import { Prisma, type PrismaClient } from '@prisma/client';
 
 import { withTenantTransaction } from '../../infrastructure/database/with-tenant-transaction.js';
@@ -13,6 +14,11 @@ import {
   candidateEmailConflictProblem,
   candidateNotFoundProblem,
 } from '../../infrastructure/http/problem-details.js';
+import {
+  executeIdempotentWrite,
+  IDEMPOTENCY_OPERATIONS,
+  type IdempotentWriteResult,
+} from '../idempotency/idempotency.service.js';
 
 function toCandidate(candidate: {
   id: string;
@@ -75,12 +81,18 @@ export async function createCandidate(
   prisma: PrismaClient,
   tenantContext: TenantContext,
   input: CreateCandidateRequest,
-): Promise<Candidate> {
+  idempotencyKey: string,
+): Promise<IdempotentWriteResult<Candidate>> {
   try {
-    return await withTenantTransaction(
+    return await executeIdempotentWrite({
       prisma,
       tenantContext,
-      async (transaction) => {
+      key: idempotencyKey,
+      operation: IDEMPOTENCY_OPERATIONS.candidateCreate,
+      fingerprintInput: { input },
+      responseStatus: 201,
+      parseResponse: (value) => candidateSchema.parse(value),
+      execute: async (transaction) => {
         const candidate = await transaction.candidate.create({
           data: {
             tenantId: tenantContext.tenantId,
@@ -92,7 +104,7 @@ export async function createCandidate(
 
         return toCandidate(candidate);
       },
-    );
+    });
   } catch (error) {
     if (isUniqueConstraintConflict(error)) {
       throw candidateEmailConflictProblem();
@@ -155,12 +167,18 @@ export async function updateCandidate(
   tenantContext: TenantContext,
   candidateId: string,
   input: UpdateCandidateRequest,
-): Promise<Candidate> {
+  idempotencyKey: string,
+): Promise<IdempotentWriteResult<Candidate>> {
   try {
-    return await withTenantTransaction(
+    return await executeIdempotentWrite({
       prisma,
       tenantContext,
-      async (transaction) => {
+      key: idempotencyKey,
+      operation: IDEMPOTENCY_OPERATIONS.candidateUpdate,
+      fingerprintInput: { candidateId, input },
+      responseStatus: 200,
+      parseResponse: (value) => candidateSchema.parse(value),
+      execute: async (transaction) => {
         const data: Prisma.CandidateUpdateManyMutationInput = {};
 
         if (input.fullName !== undefined) {
@@ -198,7 +216,7 @@ export async function updateCandidate(
 
         return toCandidate(candidate);
       },
-    );
+    });
   } catch (error) {
     if (isUniqueConstraintConflict(error)) {
       throw candidateEmailConflictProblem();

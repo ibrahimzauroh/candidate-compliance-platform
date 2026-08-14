@@ -15,6 +15,7 @@ import { permissionForbiddenProblem } from '../../infrastructure/http/problem-de
 import { createAuthenticationMiddleware } from '../auth/authenticate.middleware.js';
 import { PERMISSIONS } from '../authorisation/permissions.js';
 import { requirePermission } from '../authorisation/require-permission.middleware.js';
+import { parseIdempotencyKey } from '../idempotency/idempotency.service.js';
 import { createRequireTenantContextMiddleware } from '../tenant-context/require-tenant-context.middleware.js';
 import {
   createCandidate,
@@ -46,13 +47,17 @@ export function createCandidateRouter(
     requirePermission(PERMISSIONS.candidateCreate),
     async (request, response) => {
       const input = createCandidateRequestSchema.parse(request.body);
-      const candidate = await createCandidate(
+      const idempotencyKey = parseIdempotencyKey(
+        request.header('idempotency-key'),
+      );
+      const result = await createCandidate(
         prisma,
         tenantContextFrom(request),
         input,
+        idempotencyKey,
       );
 
-      response.status(201).json(candidateSchema.parse(candidate));
+      response.status(result.status).json(candidateSchema.parse(result.body));
     },
   );
 
@@ -98,14 +103,18 @@ export function createCandidateRouter(
     async (request, response) => {
       const { candidateId } = candidateIdParamsSchema.parse(request.params);
       const input = updateCandidateRequestSchema.parse(request.body);
-      const candidate = await updateCandidate(
+      const idempotencyKey = parseIdempotencyKey(
+        request.header('idempotency-key'),
+      );
+      const result = await updateCandidate(
         prisma,
         tenantContextFrom(request),
         candidateId,
         input,
+        idempotencyKey,
       );
 
-      response.status(200).json(candidateSchema.parse(candidate));
+      response.status(result.status).json(candidateSchema.parse(result.body));
     },
   );
 

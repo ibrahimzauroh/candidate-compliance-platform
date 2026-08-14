@@ -25,6 +25,7 @@ const jwtConfig = {
   expiresIn: '15m' as const,
 };
 const app = createApp({ prisma: runtimePrisma, jwtConfig });
+let idempotencySequence = 0;
 
 const ids = {
   tenants: {
@@ -98,15 +99,27 @@ function documentInput(
   };
 }
 
+function nextIdempotencyKey(): string {
+  idempotencySequence += 1;
+  return `phase2b-document-${idempotencySequence}`;
+}
+
 function createDocumentRequest(
   userId: string,
   tenantId: string,
   candidateId: string = ids.candidates.zaurohTest,
+  idempotencyKey: string | null = nextIdempotencyKey(),
 ) {
-  return request(app)
+  const pendingRequest = request(app)
     .post(`/api/v1/candidates/${candidateId}/documents`)
     .set('Authorization', `Bearer ${tokenFor(userId)}`)
     .set('X-Tenant-Id', tenantId);
+
+  if (idempotencyKey !== null) {
+    pendingRequest.set('Idempotency-Key', idempotencyKey);
+  }
+
+  return pendingRequest;
 }
 
 function listDocumentsRequest(
@@ -135,14 +148,24 @@ function addVersionRequest(
   userId: string,
   tenantId: string,
   documentId: string,
+  idempotencyKey: string | null = nextIdempotencyKey(),
 ) {
-  return request(app)
+  const pendingRequest = request(app)
     .post(`/api/v1/documents/${documentId}/versions`)
     .set('Authorization', `Bearer ${tokenFor(userId)}`)
     .set('X-Tenant-Id', tenantId);
+
+  if (idempotencyKey !== null) {
+    pendingRequest.set('Idempotency-Key', idempotencyKey);
+  }
+
+  return pendingRequest;
 }
 
 async function cleanTestDocuments(): Promise<void> {
+  await adminPrisma.idempotencyRecord.deleteMany({
+    where: { key: { startsWith: 'phase2b-document-' } },
+  });
   const documents = await adminPrisma.complianceDocument.findMany({
     where: {
       candidateId: {
@@ -372,6 +395,7 @@ describe('POST /api/v1/candidates/:candidateId/documents', () => {
         },
         ids.candidates.zaurohTest,
         documentInput(),
+        nextIdempotencyKey(),
       ),
     ).rejects.toMatchObject({ code: 'P2003' });
 
@@ -610,6 +634,7 @@ describe('POST /api/v1/documents/:documentId/versions', () => {
         },
         created.body.id,
         {},
+        nextIdempotencyKey(),
       ),
     ).rejects.toMatchObject({ code: 'P2003' });
 

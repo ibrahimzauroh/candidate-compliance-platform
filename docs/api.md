@@ -13,6 +13,25 @@ X-Tenant-Id: <tenant-uuid>
 
 Writes also require `Content-Type: application/json`. The tenant header is validated against the authenticated actor's memberships; it is not accepted from a path, query parameter, or request body.
 
+All mutation routes additionally require:
+
+```http
+Idempotency-Key: <opaque-client-generated-value>
+```
+
+Keys are trimmed, must contain 1 to 200 letters, digits, or supported opaque characters (`._~:/+-`), and are scoped to the validated tenant membership and operation. Repeating the same operation and validated input with the same key returns the stored response and original success status without executing the write again. Reusing that scoped key for materially different input returns `409 Conflict`:
+
+```json
+{
+  "type": "about:blank",
+  "title": "Conflict",
+  "status": 409,
+  "detail": "This Idempotency-Key has already been used for a different request."
+}
+```
+
+Keys are independent across tenant memberships and operations. Production deployments require an operational retention and cleanup policy; this phase does not expire records automatically.
+
 Protected routes can return RFC 9457-style Problem Details with content type `application/problem+json`. Common responses are `400 Bad Request` for a missing or invalid tenant header or invalid request data, `401 Unauthorized` for a missing or invalid access token, and `403 Forbidden` for an unavailable tenant context or missing operation permission.
 
 ```json
@@ -45,7 +64,7 @@ Successful create, retrieve, and update responses use this shape:
 
 `POST /api/v1/candidates`
 
-Creates a candidate in the validated tenant. Requires `candidate:create`.
+Creates a candidate in the validated tenant. Requires `candidate:create` and `Idempotency-Key`.
 
 Request body:
 
@@ -63,10 +82,12 @@ Success: `201 Created` with the Candidate representation above.
 
 Relevant errors:
 
+- `400 Bad Request` — `Idempotency-Key` is missing or invalid.
 - `400 Bad Request` — invalid JSON, invalid fields, or unexpected fields.
 - `401 Unauthorized` — authentication failed.
 - `403 Forbidden` — tenant context is unavailable or `candidate:create` is denied.
 - `409 Conflict` — the email already belongs to a candidate in the selected tenant.
+- `409 Conflict` — the scoped idempotency key was already used for different input.
 
 ## List candidates
 
@@ -138,7 +159,7 @@ Relevant errors:
 
 `PATCH /api/v1/candidates/:candidateId`
 
-Updates an existing candidate in the validated tenant. Requires `candidate:update`.
+Updates an existing candidate in the validated tenant. Requires `candidate:update` and `Idempotency-Key`.
 
 Path parameters:
 
@@ -158,11 +179,13 @@ Success: `200 OK` with the updated Candidate representation.
 
 Relevant errors:
 
+- `400 Bad Request` — `Idempotency-Key` is missing or invalid.
 - `400 Bad Request` — the ID, JSON, or update fields are invalid, or no update field was supplied.
 - `401 Unauthorized` — authentication failed.
 - `403 Forbidden` — tenant context is unavailable or `candidate:update` is denied.
 - `404 Not Found` — the candidate does not exist in the selected tenant or is not visible there.
 - `409 Conflict` — the updated email already belongs to another candidate in the selected tenant.
+- `409 Conflict` — the scoped idempotency key was already used for different input.
 
 ## Deletion status
 
@@ -196,7 +219,7 @@ Dates use `YYYY-MM-DD`. `issueDate` and `expiryDate` may be omitted or `null`; w
 
 `POST /api/v1/candidates/:candidateId/documents`
 
-Creates a logical document and DRAFT version 1 atomically for a Candidate in the validated tenant. Requires `document:create`.
+Creates a logical document and DRAFT version 1 atomically for a Candidate in the validated tenant. Requires `document:create` and `Idempotency-Key`.
 
 Path parameters:
 
@@ -218,10 +241,12 @@ Success: `201 Created` with the Compliance document representation above.
 
 Relevant errors:
 
+- `400 Bad Request` — `Idempotency-Key` is missing or invalid.
 - `400 Bad Request` — the Candidate ID, document type, dates, or body shape is invalid.
 - `401 Unauthorized` — authentication failed.
 - `403 Forbidden` — tenant context is unavailable or `document:create` is denied.
 - `404 Not Found` — the Candidate is unavailable in the selected tenant.
+- `409 Conflict` — the scoped idempotency key was already used for different input.
 
 ## List a candidate's compliance documents
 
@@ -372,7 +397,7 @@ Relevant errors:
 
 `POST /api/v1/documents/:documentId/versions`
 
-Appends a DRAFT version and advances the logical document's current-version pointer atomically. Requires `document:create`.
+Appends a DRAFT version and advances the logical document's current-version pointer atomically. Requires `document:create` and `Idempotency-Key`.
 
 Path parameters:
 
@@ -393,12 +418,14 @@ Success: `201 Created` with the logical document and its newly current version.
 
 Relevant errors:
 
+- `400 Bad Request` — `Idempotency-Key` is missing or invalid.
 - `400 Bad Request` — the document ID, dates, or body shape is invalid.
 - `401 Unauthorized` — authentication failed.
 - `403 Forbidden` — tenant context is unavailable or `document:create` is denied.
 - `404 Not Found` — the document is nonexistent or unavailable in the selected tenant.
 - `409 Conflict` — concurrent requests selected the same next version number; the request may be retried.
+- `409 Conflict` — the scoped idempotency key was already used for different input.
 
 ## Current versioning limitations
 
-Earlier version rows are preserved and no destructive version-update endpoint exists. Approved-version immutability, explicit correction/supersession rules, and audit history are not yet implemented; they remain Phase 3 work. ComplianceDocument deletion, idempotency, and OpenAPI are also deferred. The expiring-documents read is not yet audit-recorded.
+Earlier version rows are preserved and no destructive version-update endpoint exists. Approved-version immutability, explicit correction/supersession rules, and audit history are not yet implemented; they remain Phase 3 work. ComplianceDocument deletion and OpenAPI are also deferred. The expiring-documents read is not yet audit-recorded.

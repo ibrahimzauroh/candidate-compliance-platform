@@ -35,7 +35,9 @@ HTTP request
   -> authentication
   -> validated tenant membership and context
   -> operation-specific authorisation
-  -> request validation and domain service
+  -> request validation
+  -> idempotent write coordination, for mutations
+  -> domain service
   -> tenant-scoped transaction
   -> PostgreSQL RLS
 ```
@@ -46,7 +48,7 @@ Routes must compose these middleware layers in this order. Each layer fails clos
 
 The Candidate API is the first tenant-owned business module. Each route applies authentication, validated tenant context, and its operation-specific permission before parsing Zod request contracts. The service then runs through `withTenantTransaction` and includes the validated `tenant_id` explicitly in every read or update predicate while PostgreSQL RLS independently enforces the same tenant boundary.
 
-Create input cannot select tenant ownership, and candidate responses omit `tenantId`. Lists use bounded page-based pagination with deterministic `created_at DESC, id ASC` ordering and candidate-specific search, email, and applied-role filters. Idempotency, audit, and OpenAPI remain separate later sub-phases.
+Create input cannot select tenant ownership, and candidate responses omit `tenantId`. Lists use bounded page-based pagination with deterministic `created_at DESC, id ASC` ordering and candidate-specific search, email, and applied-role filters. Audit and OpenAPI remain separate later sub-phases.
 
 ## Compliance document module
 
@@ -58,7 +60,15 @@ Document lists reuse bounded page pagination and deterministic `created_at DESC,
 
 The expiring-documents query evaluates only the logical document's pointed current version. One request-level clock value is normalised to the UTC calendar date, and inclusive date comparisons cover today through day 30. Results order by current expiry date and document ID, reuse document pagination and filters, and remain explicitly tenant-scoped inside `withTenantTransaction`. The existing indexes are adequate for the assessment dataset; a tenant/expiry index should be evaluated against production query plans and volume rather than added speculatively.
 
-Basic version numbering reads the current maximum and relies on the existing tenant/document/version unique constraint as the final concurrent-write boundary. A colliding request receives a generic `409 Conflict` and may retry; no distributed lock or global serialisation is introduced. Approved-version immutability, correction semantics, audit history, and idempotent replay remain deferred.
+Basic version numbering reads the current maximum and relies on the existing tenant/document/version unique constraint as the final concurrent-write boundary. A colliding request receives a generic `409 Conflict` and may retry; no distributed lock or global serialisation is introduced. Approved-version immutability, correction semantics, and audit history remain deferred.
+
+## Idempotent writes
+
+The four current mutation routes require a validated `Idempotency-Key`. Records are scoped by the validated tenant and membership, a trusted operation identifier, and the client key; client body fields cannot select any part of this scope. A SHA-256 fingerprint covers the canonical, validated application input and any route ID that identifies the mutation. The stored result contains only the shaped public response DTO and original success status.
+
+Idempotency lookup, domain mutation, and result insertion share one `withTenantTransaction` callback. A failed mutation or record insert therefore rolls back both sides, while an exact retry replays the committed response without querying a potentially changed domain representation. Immutable records have a database uniqueness constraint for concurrency: a losing identical request rolls back its attempted mutation, reads the committed winner in a fresh tenant transaction, and replays it; a different fingerprint returns `409 Conflict`.
+
+`idempotency_records` is tenant-owned, forced-RLS protected, and owned by the migration role. The runtime role has only `SELECT` and `INSERT`, and every application lookup also includes explicit tenant, membership, operation, and key predicates. No cleanup worker is implemented; a production deployment requires a retention and deletion process operated outside the restricted runtime role.
 
 ## Evolution
 

@@ -1,13 +1,14 @@
-import type {
-  CandidateDocumentListQuery,
-  CandidateDocumentListResponse,
-  ComplianceDocument as ComplianceDocumentDto,
-  ComplianceDocumentVersion as ComplianceDocumentVersionDto,
-  CreateComplianceDocumentRequest,
-  CreateComplianceDocumentVersionRequest,
-  ExpiringComplianceDocumentListQuery,
-  ExpiringComplianceDocumentListResponse,
-  TenantContext,
+import {
+  complianceDocumentSchema,
+  type CandidateDocumentListQuery,
+  type CandidateDocumentListResponse,
+  type ComplianceDocument as ComplianceDocumentDto,
+  type ComplianceDocumentVersion as ComplianceDocumentVersionDto,
+  type CreateComplianceDocumentRequest,
+  type CreateComplianceDocumentVersionRequest,
+  type ExpiringComplianceDocumentListQuery,
+  type ExpiringComplianceDocumentListResponse,
+  type TenantContext,
 } from '@candidate-compliance/contracts';
 import {
   ComplianceDocumentStatus,
@@ -23,9 +24,24 @@ import {
   complianceDocumentNotFoundProblem,
   documentVersionConflictProblem,
 } from '../../infrastructure/http/problem-details.js';
+import {
+  executeIdempotentWrite,
+  IDEMPOTENCY_OPERATIONS,
+  type IdempotentWriteResult,
+} from '../idempotency/idempotency.service.js';
 
 function toDate(value: string | null | undefined): Date | null {
   return value ? new Date(`${value}T00:00:00.000Z`) : null;
+}
+
+function documentDateFingerprint(input: {
+  issueDate?: string | null;
+  expiryDate?: string | null;
+}) {
+  return {
+    issueDate: input.issueDate ?? null,
+    expiryDate: input.expiryDate ?? null,
+  };
 }
 
 function toDateString(value: Date | null): string | null {
@@ -93,40 +109,56 @@ export async function createComplianceDocument(
   tenantContext: TenantContext,
   candidateId: string,
   input: CreateComplianceDocumentRequest,
-): Promise<ComplianceDocumentDto> {
-  return withTenantTransaction(prisma, tenantContext, async (transaction) => {
-    await requireCandidate(transaction, tenantContext, candidateId);
-
-    const document = await transaction.complianceDocument.create({
-      data: {
-        tenantId: tenantContext.tenantId,
-        candidateId,
+  idempotencyKey: string,
+): Promise<IdempotentWriteResult<ComplianceDocumentDto>> {
+  return executeIdempotentWrite({
+    prisma,
+    tenantContext,
+    key: idempotencyKey,
+    operation: IDEMPOTENCY_OPERATIONS.documentCreate,
+    fingerprintInput: {
+      candidateId,
+      input: {
         type: input.type,
+        ...documentDateFingerprint(input),
       },
-    });
-    const version = await transaction.complianceDocumentVersion.create({
-      data: {
-        tenantId: tenantContext.tenantId,
-        documentId: document.id,
-        versionNumber: 1,
-        issueDate: toDate(input.issueDate),
-        expiryDate: toDate(input.expiryDate),
-        status: ComplianceDocumentStatus.DRAFT,
-        supersedesVersionId: null,
-        createdBy: tenantContext.membershipId,
-      },
-    });
-    const currentDocument = await transaction.complianceDocument.update({
-      where: {
-        tenantId_id: {
-          tenantId: tenantContext.tenantId,
-          id: document.id,
-        },
-      },
-      data: { currentVersionId: version.id },
-    });
+    },
+    responseStatus: 201,
+    parseResponse: (value) => complianceDocumentSchema.parse(value),
+    execute: async (transaction) => {
+      await requireCandidate(transaction, tenantContext, candidateId);
 
-    return toDocument(currentDocument, version);
+      const document = await transaction.complianceDocument.create({
+        data: {
+          tenantId: tenantContext.tenantId,
+          candidateId,
+          type: input.type,
+        },
+      });
+      const version = await transaction.complianceDocumentVersion.create({
+        data: {
+          tenantId: tenantContext.tenantId,
+          documentId: document.id,
+          versionNumber: 1,
+          issueDate: toDate(input.issueDate),
+          expiryDate: toDate(input.expiryDate),
+          status: ComplianceDocumentStatus.DRAFT,
+          supersedesVersionId: null,
+          createdBy: tenantContext.membershipId,
+        },
+      });
+      const currentDocument = await transaction.complianceDocument.update({
+        where: {
+          tenantId_id: {
+            tenantId: tenantContext.tenantId,
+            id: document.id,
+          },
+        },
+        data: { currentVersionId: version.id },
+      });
+
+      return toDocument(currentDocument, version);
+    },
   });
 }
 
@@ -259,12 +291,21 @@ export async function addComplianceDocumentVersion(
   tenantContext: TenantContext,
   documentId: string,
   input: CreateComplianceDocumentVersionRequest,
-): Promise<ComplianceDocumentDto> {
+  idempotencyKey: string,
+): Promise<IdempotentWriteResult<ComplianceDocumentDto>> {
   try {
-    return await withTenantTransaction(
+    return await executeIdempotentWrite({
       prisma,
       tenantContext,
-      async (transaction) => {
+      key: idempotencyKey,
+      operation: IDEMPOTENCY_OPERATIONS.documentVersionCreate,
+      fingerprintInput: {
+        documentId,
+        input: documentDateFingerprint(input),
+      },
+      responseStatus: 201,
+      parseResponse: (value) => complianceDocumentSchema.parse(value),
+      execute: async (transaction) => {
         const document = await transaction.complianceDocument.findFirst({
           where: {
             id: documentId,
@@ -324,7 +365,7 @@ export async function addComplianceDocumentVersion(
 
         return toDocument(currentDocument, version);
       },
-    );
+    });
   } catch (error) {
     if (isUniqueConstraintConflict(error)) {
       throw documentVersionConflictProblem();

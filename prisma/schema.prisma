@@ -36,14 +36,15 @@ enum ComplianceDocumentStatus {
 }
 
 model Tenant {
-  id          String                      @id @default(uuid()) @db.Uuid
-  name        String
-  createdAt   DateTime                    @default(now()) @map("created_at")
-  updatedAt   DateTime                    @updatedAt @map("updated_at")
-  memberships TenantMembership[]
-  candidates  Candidate[]
-  documents   ComplianceDocument[]
-  versions    ComplianceDocumentVersion[]
+  id                 String                      @id @default(uuid()) @db.Uuid
+  name               String
+  createdAt          DateTime                    @default(now()) @map("created_at")
+  updatedAt          DateTime                    @updatedAt @map("updated_at")
+  memberships        TenantMembership[]
+  candidates         Candidate[]
+  documents          ComplianceDocument[]
+  versions           ComplianceDocumentVersion[]
+  idempotencyRecords IdempotencyRecord[]
 
   @@map("tenants")
 }
@@ -61,14 +62,15 @@ model User {
 }
 
 model TenantMembership {
-  id              String                      @id @default(uuid()) @db.Uuid
-  tenantId        String                      @map("tenant_id") @db.Uuid
-  userId          String                      @map("user_id") @db.Uuid
-  role            TenantRole
-  createdAt       DateTime                    @default(now()) @map("created_at")
-  tenant          Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  user            User                        @relation(fields: [userId], references: [id], onDelete: Restrict)
-  createdVersions ComplianceDocumentVersion[]
+  id                 String                      @id @default(uuid()) @db.Uuid
+  tenantId           String                      @map("tenant_id") @db.Uuid
+  userId             String                      @map("user_id") @db.Uuid
+  role               TenantRole
+  createdAt          DateTime                    @default(now()) @map("created_at")
+  tenant             Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user               User                        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdVersions    ComplianceDocumentVersion[]
+  idempotencyRecords IdempotencyRecord[]
 
   @@unique([tenantId, userId])
   @@unique([tenantId, id])
@@ -132,4 +134,22 @@ model ComplianceDocumentVersion {
   @@unique([tenantId, documentId, versionNumber])
   @@unique([tenantId, documentId, id])
   @@map("compliance_document_versions")
+}
+
+model IdempotencyRecord {
+  id             String           @id @default(uuid()) @db.Uuid
+  tenantId       String           @map("tenant_id") @db.Uuid
+  membershipId   String           @map("membership_id") @db.Uuid
+  operation      String
+  key            String
+  requestHash    String           @map("request_hash") @db.Char(64)
+  responseStatus Int              @map("response_status")
+  responseBody   Json             @map("response_body")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  membership     TenantMembership @relation(fields: [tenantId, membershipId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, membershipId, operation, key])
+  @@index([tenantId, createdAt])
+  @@map("idempotency_records")
 }

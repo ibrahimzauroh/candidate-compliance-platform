@@ -17,6 +17,7 @@ const jwtConfig = {
   expiresIn: '15m' as const,
 };
 const app = createApp({ prisma: runtimePrisma, jwtConfig });
+let idempotencySequence = 0;
 
 const ids = {
   tenants: {
@@ -94,7 +95,16 @@ function candidateInput(name: string) {
   };
 }
 
-function createRequest(userId?: string, tenantId?: string) {
+function nextIdempotencyKey(): string {
+  idempotencySequence += 1;
+  return `phase2a-candidate-${idempotencySequence}`;
+}
+
+function createRequest(
+  userId?: string,
+  tenantId?: string,
+  idempotencyKey: string | null = nextIdempotencyKey(),
+) {
   const pendingRequest = request(app).post('/api/v1/candidates');
 
   if (userId) {
@@ -102,6 +112,9 @@ function createRequest(userId?: string, tenantId?: string) {
   }
   if (tenantId) {
     pendingRequest.set('X-Tenant-Id', tenantId);
+  }
+  if (idempotencyKey !== null) {
+    pendingRequest.set('Idempotency-Key', idempotencyKey);
   }
 
   return pendingRequest;
@@ -121,11 +134,22 @@ function getRequest(userId: string, tenantId: string, candidateId: string) {
     .set('X-Tenant-Id', tenantId);
 }
 
-function updateRequest(userId: string, tenantId: string, candidateId: string) {
-  return request(app)
+function updateRequest(
+  userId: string,
+  tenantId: string,
+  candidateId: string,
+  idempotencyKey: string | null = nextIdempotencyKey(),
+) {
+  const pendingRequest = request(app)
     .patch(`/api/v1/candidates/${candidateId}`)
     .set('Authorization', `Bearer ${tokenFor(userId)}`)
     .set('X-Tenant-Id', tenantId);
+
+  if (idempotencyKey !== null) {
+    pendingRequest.set('Idempotency-Key', idempotencyKey);
+  }
+
+  return pendingRequest;
 }
 
 async function createCandidateAs(
@@ -137,6 +161,9 @@ async function createCandidateAs(
 }
 
 async function cleanTestCandidates(): Promise<void> {
+  await adminPrisma.idempotencyRecord.deleteMany({
+    where: { key: { startsWith: 'phase2a-candidate-' } },
+  });
   await adminPrisma.candidate.deleteMany({
     where: { email: { endsWith: '@phase2a.test' } },
   });

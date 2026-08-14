@@ -51,6 +51,11 @@ const ids = {
     zaurohRightToWorkV1: '60000000-0000-4000-8000-000000000001',
     khaleelBackgroundCheckV1: '60000000-0000-4000-8000-000000000002',
   },
+  idempotencyRecords: {
+    zauroh: '71000000-0000-4000-8000-000000000001',
+    khaleel: '71000000-0000-4000-8000-000000000002',
+    rejectedInsert: '71000000-0000-4000-8000-000000000003',
+  },
 } as const;
 
 const zaurohSeedCandidateIds = [
@@ -131,9 +136,38 @@ beforeAll(async () => {
   ) {
     throw new Error('Run pnpm db:seed before RLS integration tests.');
   }
+
+  await adminPrisma.idempotencyRecord.createMany({
+    data: [
+      {
+        id: ids.idempotencyRecords.zauroh,
+        tenantId: ids.tenants.zauroh,
+        membershipId: ids.memberships.zaurohAdmin,
+        operation: 'security:test',
+        key: 'rls-idempotency-zauroh',
+        requestHash: 'a'.repeat(64),
+        responseStatus: 200,
+        responseBody: { result: 'zauroh' },
+      },
+      {
+        id: ids.idempotencyRecords.khaleel,
+        tenantId: ids.tenants.khaleel,
+        membershipId: ids.memberships.khaleelShared,
+        operation: 'security:test',
+        key: 'rls-idempotency-khaleel',
+        requestHash: 'b'.repeat(64),
+        responseStatus: 200,
+        responseBody: { result: 'khaleel' },
+      },
+    ],
+    skipDuplicates: true,
+  });
 });
 
 afterAll(async () => {
+  await adminPrisma.idempotencyRecord.deleteMany({
+    where: { id: { in: Object.values(ids.idempotencyRecords) } },
+  });
   await adminPrisma.candidate.deleteMany({
     where: { id: ids.candidates.rejectedInsert },
   });
@@ -167,7 +201,8 @@ describe('restricted runtime database role', () => {
           'tenant_memberships',
           'candidates',
           'compliance_documents',
-          'compliance_document_versions'
+          'compliance_document_versions',
+          'idempotency_records'
         )
       ORDER BY class.relname
     `;
@@ -181,7 +216,7 @@ describe('restricted runtime database role', () => {
         rolcreaterole: false,
       },
     ]);
-    expect(tables).toHaveLength(4);
+    expect(tables).toHaveLength(5);
     expect(
       tables.every((table) => table.owner === 'candidate_compliance'),
     ).toBe(true);
@@ -221,6 +256,8 @@ describe('restricted runtime database role', () => {
       { table_name: 'compliance_documents', privilege_type: 'INSERT' },
       { table_name: 'compliance_documents', privilege_type: 'SELECT' },
       { table_name: 'compliance_documents', privilege_type: 'UPDATE' },
+      { table_name: 'idempotency_records', privilege_type: 'INSERT' },
+      { table_name: 'idempotency_records', privilege_type: 'SELECT' },
       { table_name: 'tenant_memberships', privilege_type: 'SELECT' },
       { table_name: 'users', privilege_type: 'SELECT' },
     ]);
@@ -437,7 +474,8 @@ describe('forced tenant row-level security', () => {
           'tenant_memberships',
           'candidates',
           'compliance_documents',
-          'compliance_document_versions'
+          'compliance_document_versions',
+          'idempotency_records'
         )
       ORDER BY class.relname
     `;
@@ -456,13 +494,13 @@ describe('forced tenant row-level security', () => {
       ORDER BY tablename, policyname
     `;
 
-    expect(tables).toHaveLength(4);
+    expect(tables).toHaveLength(5);
     expect(
       tables.every(
         (table) => table.relrowsecurity && table.relforcerowsecurity,
       ),
     ).toBe(true);
-    expect(policies).toHaveLength(4);
+    expect(policies).toHaveLength(5);
     expect(policies.every((policy) => policy.cmd === 'ALL')).toBe(true);
     expect(
       policies.every(
@@ -484,6 +522,53 @@ describe('forced tenant row-level security', () => {
     await expect(runtimePrisma.tenantMembership.findMany()).resolves.toEqual(
       [],
     );
+    await expect(runtimePrisma.idempotencyRecord.findMany()).resolves.toEqual(
+      [],
+    );
+  });
+
+  it('isolates idempotency records and rejects cross-tenant inserts', async () => {
+    const [zaurohRecords, khaleelRecords] = await Promise.all([
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.idempotencyRecord.findMany({
+          where: { id: { in: Object.values(ids.idempotencyRecords) } },
+        }),
+      ),
+      withTenantTransaction(runtimePrisma, khaleelContext, (transaction) =>
+        transaction.idempotencyRecord.findMany({
+          where: { id: { in: Object.values(ids.idempotencyRecords) } },
+        }),
+      ),
+    ]);
+
+    expect(zaurohRecords.map(({ id }) => id)).toEqual([
+      ids.idempotencyRecords.zauroh,
+    ]);
+    expect(khaleelRecords.map(({ id }) => id)).toEqual([
+      ids.idempotencyRecords.khaleel,
+    ]);
+
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.idempotencyRecord.create({
+          data: {
+            id: ids.idempotencyRecords.rejectedInsert,
+            tenantId: ids.tenants.khaleel,
+            membershipId: ids.memberships.khaleelShared,
+            operation: 'security:test',
+            key: 'rejected-cross-tenant-insert',
+            requestHash: 'c'.repeat(64),
+            responseStatus: 200,
+            responseBody: { result: 'rejected' },
+          },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      adminPrisma.idempotencyRecord.findUnique({
+        where: { id: ids.idempotencyRecords.rejectedInsert },
+      }),
+    ).resolves.toBeNull();
   });
 
   it('limits unscoped candidate SELECT queries to the active tenant', async () => {
@@ -708,6 +793,22 @@ describe('transaction-local tenant setting', () => {
         where: { id: { in: [...zaurohSeedCandidateIds] } },
       }),
     ).resolves.toBe(0);
+  });
+
+  it('does not leak idempotency-record context after transaction completion', async () => {
+    const visible = await withTenantTransaction(
+      runtimePrisma,
+      zaurohContext,
+      (transaction) =>
+        transaction.idempotencyRecord.findMany({
+          where: { id: ids.idempotencyRecords.zauroh },
+        }),
+    );
+
+    expect(visible).toHaveLength(1);
+    await expect(runtimePrisma.idempotencyRecord.findMany()).resolves.toEqual(
+      [],
+    );
   });
 
   it('isolates concurrent transactions with different tenants', async () => {

@@ -246,6 +246,13 @@ export type ExpiringComplianceDocumentListResponse = z.infer<
   typeof expiringComplianceDocumentListResponseSchema
 >;
 
+export const idempotencyKeySchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(200)
+  .regex(/^[A-Za-z0-9._~:/+-]+$/);
+
 export const problemDetailsSchema = z.object({
   type: z.string(),
   title: z.string(),
