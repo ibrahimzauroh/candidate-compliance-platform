@@ -17,6 +17,8 @@ export const IDEMPOTENCY_OPERATIONS = {
   candidateUpdate: 'candidate:update',
   documentCreate: 'document:create',
   documentVersionCreate: 'document:version:create',
+  documentApprove: 'document:approve',
+  documentCorrect: 'document:correct',
 } as const;
 
 export type IdempotencyOperation =
@@ -73,13 +75,6 @@ function storedResponse<T>(
     body: parseResponse(record.responseBody),
     replayed: true,
   };
-}
-
-function isUniqueConstraintConflict(error: unknown): boolean {
-  return (
-    error instanceof Prisma.PrismaClientKnownRequestError &&
-    error.code === 'P2002'
-  );
 }
 
 function jsonBody(value: unknown): Prisma.InputJsonValue {
@@ -152,16 +147,18 @@ export async function executeIdempotentWrite<T>({
       },
     );
   } catch (error) {
-    if (!isUniqueConstraintConflict(error)) {
+    let existing: StoredResult | null = null;
+
+    try {
+      existing = await withTenantTransaction(
+        prisma,
+        tenantContext,
+        (transaction) =>
+          findStoredResult(transaction, tenantContext, operation, key),
+      );
+    } catch {
       throw error;
     }
-
-    const existing = await withTenantTransaction(
-      prisma,
-      tenantContext,
-      (transaction) =>
-        findStoredResult(transaction, tenantContext, operation, key),
-    );
 
     if (existing) {
       return storedResponse(existing, expectedHash, parseResponse);

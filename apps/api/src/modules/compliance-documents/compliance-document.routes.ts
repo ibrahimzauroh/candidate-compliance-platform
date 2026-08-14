@@ -1,8 +1,10 @@
 import {
+  approveComplianceDocumentRequestSchema,
   candidateDocumentListQuerySchema,
   candidateDocumentListResponseSchema,
   candidateIdParamsSchema,
   complianceDocumentSchema,
+  correctComplianceDocumentRequestSchema,
   createComplianceDocumentRequestSchema,
   createComplianceDocumentVersionRequestSchema,
   documentIdParamsSchema,
@@ -22,6 +24,8 @@ import { parseIdempotencyKey } from '../idempotency/idempotency.service.js';
 import { createRequireTenantContextMiddleware } from '../tenant-context/require-tenant-context.middleware.js';
 import {
   addComplianceDocumentVersion,
+  approveComplianceDocument,
+  correctComplianceDocument,
   createComplianceDocument,
   getComplianceDocument,
   listCandidateComplianceDocuments,
@@ -144,6 +148,55 @@ export function createComplianceDocumentRouter(
         request.header('idempotency-key'),
       );
       const result = await addComplianceDocumentVersion(
+        prisma,
+        tenantContextFrom(request),
+        documentId,
+        input,
+        idempotencyKey,
+      );
+
+      response
+        .status(result.status)
+        .json(complianceDocumentSchema.parse(result.body));
+    },
+  );
+
+  router.post(
+    '/documents/:documentId/approve',
+    authenticate,
+    requireTenantContext,
+    requirePermission(PERMISSIONS.documentApprove),
+    async (request, response) => {
+      const { documentId } = documentIdParamsSchema.parse(request.params);
+      approveComplianceDocumentRequestSchema.parse(request.body ?? {});
+      const idempotencyKey = parseIdempotencyKey(
+        request.header('idempotency-key'),
+      );
+      const result = await approveComplianceDocument(
+        prisma,
+        tenantContextFrom(request),
+        documentId,
+        idempotencyKey,
+      );
+
+      response
+        .status(result.status)
+        .json(complianceDocumentSchema.parse(result.body));
+    },
+  );
+
+  router.post(
+    '/documents/:documentId/corrections',
+    authenticate,
+    requireTenantContext,
+    requirePermission(PERMISSIONS.documentCorrect),
+    async (request, response) => {
+      const { documentId } = documentIdParamsSchema.parse(request.params);
+      const input = correctComplianceDocumentRequestSchema.parse(request.body);
+      const idempotencyKey = parseIdempotencyKey(
+        request.header('idempotency-key'),
+      );
+      const result = await correctComplianceDocument(
         prisma,
         tenantContextFrom(request),
         documentId,

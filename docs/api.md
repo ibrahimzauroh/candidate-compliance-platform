@@ -45,7 +45,7 @@ Protected routes can return RFC 9457-style Problem Details with content type `ap
 
 ## Audit behaviour
 
-Successful candidate and compliance-document creates, updates, version creation, retrievals, list results, and expiring-document results append tenant-scoped audit events. Creates have a null before hash and a canonical SHA-256 after hash. Updates and version creation hash the before and after public state, while reads have a null before hash and hash the returned state.
+Successful candidate and compliance-document creates, updates, version creation, approval, correction, retrievals, list results, and expiring-document results append tenant-scoped audit events. Creates have a null before hash and a canonical SHA-256 after hash. Updates, version creation, approval, and correction hash the before and after public state, while reads have a null before hash and hash the returned state.
 
 Mutation events are written in the same tenant transaction as the domain mutation and idempotency result. Failed operations roll back without an event, and replaying an already committed idempotent mutation does not append a duplicate. List endpoints append one event per returned record, bounded by `pageSize <= 100`; an empty page has no record to audit and therefore appends no event.
 
@@ -420,7 +420,7 @@ Request body:
 }
 ```
 
-Both dates are optional. The server assigns the next version number, records the active membership as creator, and references the previous current version as `supersedesVersionId`. These internal provenance fields are not returned publicly.
+Both dates are optional. The server assigns the next version number, records the active membership as creator, and references the previous current version as `supersedesVersionId`. These internal provenance fields are not returned publicly. This general operation cannot append a version when the current version is approved; use the correction operation so approved-history rules are enforced explicitly.
 
 Success: `201 Created` with the logical document and its newly current version.
 
@@ -434,6 +434,53 @@ Relevant errors:
 - `409 Conflict` — concurrent requests selected the same next version number; the request may be retried.
 - `409 Conflict` — the scoped idempotency key was already used for different input.
 
+## Approve a compliance document version
+
+`POST /api/v1/documents/:documentId/approve`
+
+Approves the logical document's current version. Requires `document:approve` and `Idempotency-Key`. The request body must be an empty JSON object.
+
+A current `DRAFT` or `PENDING_REVIEW` version transitions to `APPROVED`. Repeating approval when the current version is already approved is a semantic no-op that returns the same public state without another mutation audit event. A `REJECTED` current version cannot be approved through this operation.
+
+Success: `200 OK` with the logical document and its approved current version.
+
+Relevant errors:
+
+- `400 Bad Request` — `Idempotency-Key`, document ID, or request body is invalid.
+- `401 Unauthorized` — authentication failed.
+- `403 Forbidden` — tenant context is unavailable or `document:approve` is denied.
+- `404 Not Found` — the document is nonexistent or unavailable in the selected tenant.
+- `409 Conflict` — the current version cannot be approved from its current status.
+- `409 Conflict` — the scoped idempotency key was already used for different input.
+
+## Correct an approved compliance document version
+
+`POST /api/v1/documents/:documentId/corrections`
+
+Corrects only an `APPROVED` current version. Requires `document:correct` and `Idempotency-Key`.
+
+Request body:
+
+```json
+{
+  "issueDate": "2026-09-01",
+  "expiryDate": "2027-09-01"
+}
+```
+
+Both fields are required and nullable, so a correction supplies the complete corrected date state. Expiry cannot precede issue. The operation creates one new `DRAFT` version, links it to the approved current version through `supersedesVersionId`, and atomically advances the logical document's pointer. It never edits the approved row or its compliance values.
+
+Success: `201 Created` with the logical document and its newly current corrected version.
+
+Relevant errors:
+
+- `400 Bad Request` — `Idempotency-Key`, document ID, dates, or request body is invalid.
+- `401 Unauthorized` — authentication failed.
+- `403 Forbidden` — tenant context is unavailable or `document:correct` is denied.
+- `404 Not Found` — the document is nonexistent or unavailable in the selected tenant.
+- `409 Conflict` — the current version is not approved.
+- `409 Conflict` — the scoped idempotency key was already used for different input.
+
 ## Current versioning limitations
 
-Earlier version rows are preserved and no destructive version-update endpoint exists. Approved-version immutability and explicit correction/supersession rules are not yet implemented; they remain later Phase 3 work. ComplianceDocument deletion, audit browsing/export, and OpenAPI are also deferred.
+Earlier version rows are preserved and no destructive compliance-data update endpoint exists. The restricted runtime role can update only the version status column, and PostgreSQL prevents it from changing approved rows or applying unsupported approval transitions. Approval reasons/comments and a separate review-submission operation are not modelled; `PENDING_REVIEW` remains an allowed approval source for future workflows. ComplianceDocument deletion, audit browsing/export, and OpenAPI remain deferred.

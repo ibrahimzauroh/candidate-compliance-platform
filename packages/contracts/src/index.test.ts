@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  approveComplianceDocumentRequestSchema,
   candidateDocumentListQuerySchema,
   candidateDocumentListResponseSchema,
   candidateListQuerySchema,
   candidateListResponseSchema,
   complianceDocumentSchema,
+  correctComplianceDocumentRequestSchema,
   createComplianceDocumentRequestSchema,
   createComplianceDocumentVersionRequestSchema,
   createCandidateRequestSchema,
@@ -234,6 +236,43 @@ describe('compliance document request schemas', () => {
         }),
       ).toThrow();
     }
+  });
+
+  it('accepts an empty approval body and rejects client-controlled fields', () => {
+    expect(approveComplianceDocumentRequestSchema.parse({})).toEqual({});
+    expect(() =>
+      approveComplianceDocumentRequestSchema.parse({ status: 'APPROVED' }),
+    ).toThrow();
+  });
+
+  it('requires a complete, valid correction date state', () => {
+    expect(
+      correctComplianceDocumentRequestSchema.parse({
+        issueDate: '2026-08-01',
+        expiryDate: '2027-08-01',
+      }),
+    ).toEqual({
+      issueDate: '2026-08-01',
+      expiryDate: '2027-08-01',
+    });
+    expect(() =>
+      correctComplianceDocumentRequestSchema.parse({
+        issueDate: '2026-08-01',
+      }),
+    ).toThrow();
+    expect(() =>
+      correctComplianceDocumentRequestSchema.parse({
+        issueDate: '2027-08-01',
+        expiryDate: '2026-08-01',
+      }),
+    ).toThrow();
+    expect(() =>
+      correctComplianceDocumentRequestSchema.parse({
+        issueDate: null,
+        expiryDate: null,
+        status: 'APPROVED',
+      }),
+    ).toThrow();
   });
 });
 

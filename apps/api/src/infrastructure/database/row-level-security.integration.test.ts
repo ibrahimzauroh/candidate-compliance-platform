@@ -299,6 +299,77 @@ describe('restricted runtime database role', () => {
       { table_name: 'tenant_memberships', privilege_type: 'SELECT' },
       { table_name: 'users', privilege_type: 'SELECT' },
     ]);
+
+    const versionUpdateColumns = await adminPrisma.$queryRaw<
+      Array<{ column_name: string; privilege_type: string }>
+    >`
+      SELECT column_name, privilege_type
+      FROM information_schema.role_column_grants
+      WHERE grantee = 'candidate_compliance_app'
+        AND table_schema = 'public'
+        AND table_name = 'compliance_document_versions'
+        AND privilege_type = 'UPDATE'
+      ORDER BY column_name
+    `;
+
+    expect(versionUpdateColumns).toEqual([
+      { column_name: 'status', privilege_type: 'UPDATE' },
+    ]);
+  });
+
+  it('enforces approved-version immutability for the runtime role', async () => {
+    const trigger = await adminPrisma.$queryRaw<
+      Array<{ trigger_name: string; function_name: string; enabled: string }>
+    >`
+      SELECT
+        trigger.tgname AS trigger_name,
+        procedure.proname AS function_name,
+        trigger.tgenabled AS enabled
+      FROM pg_catalog.pg_trigger AS trigger
+      JOIN pg_catalog.pg_proc AS procedure
+        ON procedure.oid = trigger.tgfoid
+      JOIN pg_catalog.pg_class AS class
+        ON class.oid = trigger.tgrelid
+      JOIN pg_catalog.pg_namespace AS namespace
+        ON namespace.oid = class.relnamespace
+      WHERE namespace.nspname = 'public'
+        AND class.relname = 'compliance_document_versions'
+        AND trigger.tgname = 'compliance_document_versions_runtime_transition'
+        AND NOT trigger.tgisinternal
+    `;
+    const before =
+      await adminPrisma.complianceDocumentVersion.findUniqueOrThrow({
+        where: { id: ids.documentVersions.zaurohRightToWorkV1 },
+      });
+
+    expect(trigger).toEqual([
+      {
+        trigger_name: 'compliance_document_versions_runtime_transition',
+        function_name: 'enforce_runtime_document_version_transition',
+        enabled: 'O',
+      },
+    ]);
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.complianceDocumentVersion.update({
+          where: { id: ids.documentVersions.zaurohRightToWorkV1 },
+          data: { expiryDate: new Date('2040-01-01T00:00:00.000Z') },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.complianceDocumentVersion.update({
+          where: { id: ids.documentVersions.zaurohRightToWorkV1 },
+          data: { status: 'DRAFT' },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      adminPrisma.complianceDocumentVersion.findUniqueOrThrow({
+        where: { id: ids.documentVersions.zaurohRightToWorkV1 },
+      }),
+    ).resolves.toEqual(before);
   });
 });
 

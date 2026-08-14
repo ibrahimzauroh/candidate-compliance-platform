@@ -10,6 +10,8 @@ export const AUDIT_ACTIONS = {
   candidateListRead: 'candidate:list:read',
   documentCreate: 'document:create',
   documentVersionCreate: 'document:version:create',
+  documentApprove: 'document:approve',
+  documentCorrect: 'document:correct',
   documentRead: 'document:read',
   documentListRead: 'document:list:read',
   documentExpiryRead: 'document:expiry:read',

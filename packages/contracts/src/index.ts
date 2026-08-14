@@ -179,6 +179,22 @@ export type CreateComplianceDocumentVersionRequest = z.infer<
   typeof createComplianceDocumentVersionRequestSchema
 >;
 
+export const approveComplianceDocumentRequestSchema = z.strictObject({});
+
+export const correctComplianceDocumentRequestSchema = z
+  .strictObject({
+    issueDate: z.iso.date().nullable(),
+    expiryDate: z.iso.date().nullable(),
+  })
+  .refine(hasValidDocumentDateOrder, {
+    path: ['expiryDate'],
+    message: 'Expiry date must not be earlier than issue date.',
+  });
+
+export type CorrectComplianceDocumentRequest = z.infer<
+  typeof correctComplianceDocumentRequestSchema
+>;
+
 export const documentIdParamsSchema = z.strictObject({
   documentId: z.uuid(),
 });

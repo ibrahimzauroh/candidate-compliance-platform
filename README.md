@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository is the foundation for a secure, multi-tenant candidate compliance module. The current phase contains the workspace, local infrastructure, core relational tenant model, deterministic development seed, platform authentication, validated tenant context, operation-specific authorisation, tenant-scoped Candidate and ComplianceDocument APIs, API health endpoint, and minimal web shell. Audit, verification, AI, and frontend workflows are intentionally not implemented yet.
+This repository is the foundation for a secure, multi-tenant candidate compliance module. The current phase contains the workspace, local infrastructure, core relational tenant model, deterministic development seed, platform authentication, validated tenant context, operation-specific authorisation, tenant-scoped Candidate and ComplianceDocument APIs, append-only audit ledger, API health endpoint, and minimal web shell. Verification, AI, and frontend workflows are intentionally not implemented yet.
 
 ## Architecture summary
 
@@ -133,7 +133,7 @@ See [docs/api.md](docs/api.md) for the current developer-facing Candidate API re
 
 ## ComplianceDocument API
 
-The current document surface creates a logical document with version 1, lists a candidate's documents, retrieves a document's current version, and appends a new version:
+The current document surface creates a logical document with version 1, lists and retrieves documents, appends draft versions, approves eligible current versions, and corrects approved current versions through supersession:
 
 ```text
 POST  /api/v1/candidates/:candidateId/documents
@@ -141,9 +141,11 @@ GET   /api/v1/candidates/:candidateId/documents
 GET   /api/v1/documents/:documentId
 GET   /api/v1/documents/expiring
 POST  /api/v1/documents/:documentId/versions
+POST  /api/v1/documents/:documentId/approve
+POST  /api/v1/documents/:documentId/corrections
 ```
 
-New versions start as `DRAFT`; tenant ownership, creator membership, version number, and current-version selection are server-controlled. Document mutations require an `Idempotency-Key`. The expiring-documents route returns current versions expiring from today through day 30 for the validated tenant. See [docs/api.md](docs/api.md) for payloads, pagination, filters, responses, and current lifecycle limitations.
+New versions start as `DRAFT`; tenant ownership, creator membership, version number, status transitions, and current-version selection are server-controlled. A current `DRAFT` or `PENDING_REVIEW` version may be approved, while correcting a current `APPROVED` version creates a new `DRAFT` that supersedes it and atomically becomes current. The approved row is retained unchanged. All document mutations require an `Idempotency-Key`, use operation-specific permissions, and write their audit event transactionally. The expiring-documents route returns current versions expiring from today through day 30 for the validated tenant. See [docs/api.md](docs/api.md) for payloads, pagination, filters, responses, and lifecycle rules.
 
 ## Audit ledger
 
@@ -203,6 +205,6 @@ AI was used for implementation acceleration, refactoring suggestions, test gener
 - Production idempotency-record retention and cleanup policy remains an operational decision.
 - Audit browsing/export, retention, and external log forwarding are not implemented.
 - Empty list pages do not create an audit row because the ledger records each returned record rather than query intent.
-- Approved-version immutability and explicit correction/supersession rules remain deferred to a later Phase 3 sub-phase.
+- Approval currently records the transition through the append-only ledger rather than separate approval-comment or approval-reason fields.
 - No frontend business screens are present.
 - Production deployment and observability are outside this foundation phase.

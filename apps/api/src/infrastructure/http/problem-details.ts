@@ -101,6 +101,35 @@ export function documentVersionConflictProblem(): ProblemError {
   });
 }
 
+export function documentApprovalConflictProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Conflict',
+    status: 409,
+    detail:
+      'The current document version cannot be approved from its current status.',
+  });
+}
+
+export function documentCorrectionConflictProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Conflict',
+    status: 409,
+    detail: 'Only an approved current document version can be corrected.',
+  });
+}
+
+export function approvedDocumentVersionConflictProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Conflict',
+    status: 409,
+    detail:
+      'Approved document versions must be changed through the correction operation.',
+  });
+}
+
 export function idempotencyKeyRequiredProblem(): ProblemError {
   return new ProblemError({
     type: 'about:blank',
