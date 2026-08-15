@@ -725,3 +725,19 @@ The database restricts runtime updates to decision/profile columns, applies forc
 ## Current versioning limitations
 
 Earlier version rows are preserved and no destructive compliance-data update endpoint exists. Retention-safe `DELETE` marks only a logical aggregate inactive and does not erase evidence. The restricted runtime role can update only the explicitly granted aggregate, version, workflow, and AI columns; PostgreSQL prevents restoration, physical deletion, changes to approved rows, and unsupported approval transitions. Approval reasons/comments and a separate review-submission operation are not modelled; `PENDING_REVIEW` remains an allowed approval source for future workflows. Privileged retention/erasure operations and audit browsing/export remain deferred.
+
+
+## Web application integration
+
+The authenticated web application is Candidate-centred. Browser code calls
+same-origin Next.js route handlers; the backend Bearer token remains in an
+`HttpOnly` session cookie and is never returned to browser JavaScript. The server
+revalidates the selected tenant before tenant-scoped calls and derives raw
+backend idempotency keys for Candidate creation, document creation/lifecycle
+actions, CV extraction, and CV decisions.
+
+The implemented browser workflows cover Candidate list/create/detail,
+compliance-document list/create/read, immutable version history, approval,
+governed correction, and governed CV upload/proposal review/confirm/reject.
+Standalone global Verification and Audit dashboards are intentionally not part of
+the focused frontend; their backend APIs remain documented above.

@@ -198,3 +198,51 @@ CV upload and both decision paths use validated server tenant context and
 server-derived idempotency keys. Raw CV content is not logged or retained by the
 application. Rendered browser, 320px viewport, and assistive-technology checks
 remain manual because no `pnpm e2e:web` command exists yet.
+
+
+## Browser walkthrough
+
+The primary browser journey has been manually exercised against the local API and
+seeded PostgreSQL database.
+
+Use the development-only password `ComplianceDemo123`.
+
+### Primary happy path
+
+Sign in as `khaleel.admin@iza.com`, select **Khaleel Care Staffing**, then verify:
+
+1. Candidate list/search/filter loads only the selected tenant.
+2. A Candidate can be created and opened.
+3. A compliance document can be created and begins as `DRAFT`.
+4. The document detail shows the current version and persisted version history.
+5. Approval changes an eligible current version to `APPROVED`.
+6. The approved version is presented as immutable.
+7. Correction creates a new current `DRAFT` rather than editing the approved row.
+8. The prior `APPROVED` version remains visible in history.
+9. A text or PDF CV no larger than 2 MiB can be uploaded from Candidate detail.
+10. The resulting extraction is visibly `PROPOSED` and non-authoritative.
+11. Recruiter-confirmed values can be edited independently of the proposed values.
+12. Explicit confirmation produces the accepted profile, or explicit rejection
+    rejects only the proposal.
+
+### Operation-level authorisation check
+
+Sign in as `shared@iza.com`, select **Khaleel Care Staffing**, and attempt an
+approval. That membership is a `RECRUITER`; a bounded permission denial is an
+expected PASS when `document:approve` is not granted. The document must remain
+unchanged.
+
+### Cross-tenant isolation check
+
+Use `shared@iza.com` to switch between its authorised tenant memberships. Copy a
+Candidate or document URL from one selected tenant, switch to the other tenant,
+and open the copied URL. The expected result is a neutral unavailable/not-found
+state with no resource details disclosed. Switch back to the owning tenant and
+confirm the resource is visible again.
+
+### Remaining manual browser checks
+
+Before submission, repeat the primary pages at desktop, tablet, and approximately
+320px width and complete a keyboard-only pass using Tab, Shift+Tab, Enter, Space,
+and Escape where applicable. Automated browser E2E is intentionally not present;
+`pnpm test:web` remains the automated component/server-boundary suite.

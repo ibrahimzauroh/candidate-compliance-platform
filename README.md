@@ -33,6 +33,26 @@ cp .env.example .env
 ```
 
 On Windows PowerShell, use `Copy-Item .env.example .env` instead of `cp`.
+## Local troubleshooting
+
+### PostgreSQL port unavailable on Windows
+
+The default local Compose configuration publishes PostgreSQL on port `5432`.
+
+If Docker reports that port 5432 cannot be bound after a Windows restart, first
+check whether another process owns the port and whether Windows has placed it
+inside an excluded TCP range:
+
+```powershell
+netstat -ano | findstr :5432
+netsh interface ipv4 show excludedportrange protocol=tcp
+```
+
+If no process owns the port but `5432` falls inside an excluded range, treat this
+as a host networking issue rather than an application or migration failure.
+Resolve the local port conflict/exclusion before running database-backed tests.
+Do not reset or delete the PostgreSQL volume merely to resolve a host port-binding
+problem.
 
 ## Environment variables
 
@@ -181,7 +201,8 @@ POST  /api/v1/cv-extractions/:extractionId/confirm
 POST  /api/v1/cv-extractions/:extractionId/reject
 ```
 
-Extraction requires `ai:extract` and an `Idempotency-Key`. The upload is the raw request body with `Content-Type: text/plain` or `application/pdf`, is limited to 2 MiB, and is processed only in memory. Raw CV bytes and extracted text are not retained. The network-free local provider returns unknown data that must pass strict shared validation before a tenant-owned `PROPOSED` result can be stored.
+Extraction requires `ai:extract` and an `Idempotency-Key`. The upload is the raw request body with `Content-Type: text/plain` or `application/pdf`, is limited to 2 MiB, and is processed only in memory. Raw CV bytes and extracted text are not retained. 
+The deterministic network-free local provider exists to demonstrate the governed extraction boundary rather than production-grade CV parsing accuracy. Its output must pass strict shared validation before a tenant-owned `PROPOSED` result can be stored, and that output remains advisory until a recruiter explicitly confirms or rejects it.
 
 Reading a proposal requires `ai:extract`; confirming or rejecting it requires `ai:confirm` and an `Idempotency-Key`. Confirmation may supply validated recruiter edits and atomically creates or replaces the candidate's small confirmed profile while retaining the original proposal separately. Rejection changes only the proposal. Neither extraction nor rejection changes, scores, ranks, disables, or rejects the Candidate record. PostgreSQL prevents the runtime role from creating a profile without matching accepted extraction evidence or deciding one proposal twice.
 
@@ -274,9 +295,69 @@ pnpm openapi:check
 
 The check performs standards-aware OpenAPI 3.1 validation and fails for missing or nonexistent routes, incorrect methods or operation IDs, duplicate operation IDs, or missing security, tenant, idempotency, response, upload, and retention-safe deletion declarations.
 
-## Demo users
+## Browser demo
 
-The local seeded identities and development-only password are documented under Seed data. They work with `POST /api/v1/auth/login` after the database is seeded and the API is running.
+After completing database setup and seeding, start both applications with
+`pnpm dev`, or run `pnpm dev:api` and `pnpm dev:web` in separate terminals.
+Open `http://localhost:3000`.
+
+All seeded demo accounts use the development-only password `ComplianceDemo123`.
+
+### Recommended happy-path account
+
+For the broadest frontend demonstration, sign in with:
+
+```text
+Email: khaleel.admin@iza.com
+Password: ComplianceDemo123
+Tenant: Khaleel Care Staffing
+Role: ADMIN
+```
+
+Use this account to exercise the primary browser journey:
+
+1. Sign in.
+2. Select **Khaleel Care Staffing**.
+3. Open **Candidates**.
+4. Create a Candidate.
+5. Open the Candidate detail page.
+6. Add a compliance document.
+7. Open the new `DRAFT` document.
+8. Approve the current version.
+9. Confirm that it becomes `APPROVED` and is presented as immutable.
+10. Create a correction.
+11. Confirm that correction creates a new current `DRAFT` rather than modifying
+    the approved version.
+12. Inspect the retained version history.
+13. Return to the Candidate.
+14. Upload a text or PDF CV of at most 2 MiB.
+15. Review the AI-proposed values.
+16. Edit recruiter-confirmed values as required.
+17. Explicitly confirm or reject the proposal.
+
+The deterministic local CV provider demonstrates the governed extraction boundary
+rather than production-grade parsing accuracy. Its output remains advisory until
+a human explicitly confirms or rejects it, and rejecting a proposal never rejects
+the Candidate.
+
+### Authorisation demonstration
+
+Backend permissions remain authoritative. To exercise an operation-level denial,
+sign in as `shared@iza.com`, select **Khaleel Care Staffing**, and attempt a
+document approval. That membership is a `RECRUITER`; an unauthorised approval is
+expected to return a bounded permission-denied state without changing the
+document.
+
+
+### Frontend scope
+
+The frontend is intentionally Candidate-centred rather than a collection of
+independent administration dashboards. Candidate detail is the entry point for
+Candidate-owned compliance documents and governed CV extraction.
+
+Standalone global Documents, Verification, CV-review, and Audit dashboards are
+not implemented. Right-to-Work verification remains available through the
+backend API and worker and is covered by backend tests and documentation.
 
 ## Security notes
 
@@ -285,6 +366,7 @@ No production secrets are stored in the repository. The checked-in database and 
 ## AI assistant usage
 
 AI was used for implementation acceleration, refactoring suggestions, test generation ideas, and documentation review. Architecture, tenancy strategy, authorisation model, data model, security boundaries, trade-offs, and final review are decided and validated by the engineer. Generated code is reviewed, changed where necessary, and tested before inclusion.
+
 
 ## Known limitations
 
@@ -298,7 +380,7 @@ AI was used for implementation acceleration, refactoring suggestions, test gener
 - Outbox polling runs as a local Node.js worker without distributed scheduling or leader election.
 - CV extraction uses a deterministic local provider and text extraction only. It has no OCR, external model, prompt orchestration, malware scanning, or permanent file storage; production uploads require additional content-security controls and an explicitly governed provider integration.
 - The frontend currently covers authentication, tenant selection, Candidate list/search/filter/pagination, Candidate creation/detail, compliance-document list/create/read, version history, approval and governed correction, plus governed CV upload, proposal review, recruiter editing, confirmation and proposal-only rejection. Candidate edit/removal and verification and audit screens remain intentionally deferred.
-- Frontend component and server-boundary behaviour is covered by `pnpm test:web`, but browser E2E, rendered viewport checks, and manual assistive-technology verification remain outstanding. No `pnpm e2e:web` command exists yet.
+- Frontend component and server-boundary behaviour is covered by `pnpm test:web`. The primary browser journey has also been manually exercised against the local API and seeded database, including authentication, tenant selection, Candidate creation/detail, document creation, approval, governed correction/version history, role-based approval denial, and governed CV upload/proposal review. Automated browser E2E, systematic viewport coverage, and manual assistive-technology verification remain outstanding. No `pnpm e2e:web` command exists yet.
 - Frontend sign-out clears the local same-origin cookies but does not revoke an issued backend JWT. Refresh tokens and session renewal are not implemented.
 - The frontend does not receive operation-level permission discovery, so the API remains solely authoritative when a role cannot perform an offered operation.
 - The current `HttpOnly`, `SameSite=Lax` cookie boundary and same-origin mutation checks are suitable for the local application. Production deployment requires deployment-specific session renewal/revocation, cookie-domain, TLS, CSRF, and rate-limit review.
