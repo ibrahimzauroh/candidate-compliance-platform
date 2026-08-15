@@ -53,6 +53,23 @@ export const loginResponseSchema = z.object({
 
 export type LoginResponse = z.infer<typeof loginResponseSchema>;
 
+export const membershipOptionSchema = z.strictObject({
+  membershipId: z.uuid(),
+  tenantId: z.uuid(),
+  tenantName: z.string(),
+  role: tenantRoleSchema,
+});
+
+export type MembershipOption = z.infer<typeof membershipOptionSchema>;
+
+export const membershipListResponseSchema = z.strictObject({
+  memberships: z.array(membershipOptionSchema),
+});
+
+export type MembershipListResponse = z.infer<
+  typeof membershipListResponseSchema
+>;
+
 const candidateFullNameSchema = z.string().trim().min(1).max(200);
 const candidateEmailSchema = z
   .string()

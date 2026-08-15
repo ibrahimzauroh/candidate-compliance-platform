@@ -20,6 +20,7 @@ import {
   healthResponseSchema,
   idempotencyKeySchema,
   loginRequestSchema,
+  membershipListResponseSchema,
   noContentResponseSchema,
   problemDetailsSchema,
   requestVerificationRequestSchema,
@@ -124,6 +125,60 @@ describe('tenantContextSchema', () => {
         userId: '20000000-0000-4000-8000-000000000004',
         membershipId: '30000000-0000-4000-8000-000000000004',
         role: 'OWNER',
+      }),
+    ).toThrow();
+  });
+});
+
+describe('membershipListResponseSchema', () => {
+  it('accepts authenticated membership options using the shared role enum', () => {
+    expect(
+      membershipListResponseSchema.parse({
+        memberships: [
+          {
+            membershipId: '30000000-0000-4000-8000-000000000001',
+            tenantId: '10000000-0000-4000-8000-000000000001',
+            tenantName: 'Example Tenant',
+            role: 'ADMIN',
+          },
+        ],
+      }),
+    ).toEqual({
+      memberships: [
+        {
+          membershipId: '30000000-0000-4000-8000-000000000001',
+          tenantId: '10000000-0000-4000-8000-000000000001',
+          tenantName: 'Example Tenant',
+          role: 'ADMIN',
+        },
+      ],
+    });
+  });
+
+  it('accepts an authenticated actor with no memberships', () => {
+    expect(membershipListResponseSchema.parse({ memberships: [] })).toEqual({
+      memberships: [],
+    });
+  });
+
+  it('rejects malformed roles, identifiers, and internal fields', () => {
+    expect(() =>
+      membershipListResponseSchema.parse({
+        memberships: [
+          {
+            membershipId: 'not-a-uuid',
+            tenantId: '10000000-0000-4000-8000-000000000001',
+            tenantName: 'Example Tenant',
+            role: 'OWNER',
+            userId: '20000000-0000-4000-8000-000000000001',
+          },
+        ],
+      }),
+    ).toThrow();
+    expect(() =>
+      membershipListResponseSchema.parse({
+        memberships: [],
+        permissions: [],
       }),
     ).toThrow();
   });

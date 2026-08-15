@@ -4,7 +4,13 @@ This document is a concise developer guide to the implemented APIs. The canonica
 
 ## Protected-route headers
 
-All protected business routes require:
+Authenticated membership discovery occurs before tenant selection and requires only:
+
+```http
+Authorization: Bearer <token>
+```
+
+All tenant-scoped business routes require:
 
 ```http
 Authorization: Bearer <token>
@@ -42,6 +48,29 @@ Protected routes can return RFC 9457-style Problem Details with content type `ap
   "detail": "You do not have permission to perform this operation."
 }
 ```
+
+## Membership discovery
+
+`GET /api/v1/memberships`
+
+Returns only the authenticated actor's current tenant-membership options for pre-selection UI. It requires Bearer authentication but does not require `X-Tenant-Id`, an idempotency key, or an operation-specific tenant permission. Query, path, body, and incidental tenant-header values are not used as identity selectors.
+
+Success: `200 OK`.
+
+```json
+{
+  "memberships": [
+    {
+      "membershipId": "30000000-0000-4000-8000-000000000001",
+      "tenantId": "10000000-0000-4000-8000-000000000001",
+      "tenantName": "Example Tenant",
+      "role": "ADMIN"
+    }
+  ]
+}
+```
+
+Results are ordered by tenant name and then tenant ID. An authenticated user without memberships receives `{ "memberships": [] }`. The response deliberately excludes permissions, other users, credentials, and tenant internals. Missing, malformed, forged, or expired authentication returns the existing generic `401 Unauthorized` Problem Details response.
 
 ## Audit behaviour
 

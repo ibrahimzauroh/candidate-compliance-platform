@@ -102,6 +102,15 @@ curl http://localhost:4000/api/v1/auth/me \
 
 Authentication does not select a tenant or grant tenant permissions. Tenant context and operation-specific authorisation remain separate layers.
 
+Before selecting a tenant, an authenticated user can discover only their own current membership options:
+
+```bash
+curl http://localhost:4000/api/v1/memberships \
+  -H "Authorization: Bearer <access-token>"
+```
+
+Membership discovery does not require or trust `X-Tenant-Id`, and it does not grant a tenant permission. The response contains only the membership ID, tenant ID, tenant display name, and role needed by a tenant selector. The selected tenant must still be validated through the context endpoint below.
+
 ## Tenant context
 
 Tenant-scoped requests must provide the selected tenant as an `X-Tenant-Id` header. The API treats this client value as untrusted and establishes context only when the authenticated user has a matching current membership.

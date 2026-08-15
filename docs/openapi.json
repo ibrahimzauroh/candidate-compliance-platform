@@ -12,6 +12,7 @@
   "tags": [
     { "name": "Health" },
     { "name": "Authentication" },
+    { "name": "Memberships" },
     { "name": "Tenant context" },
     { "name": "Candidates" },
     { "name": "Compliance documents" },
@@ -85,6 +86,30 @@
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/UserIdentity" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    },
+    "/api/v1/memberships": {
+      "get": {
+        "operationId": "listMyMemberships",
+        "summary": "List my tenant memberships",
+        "description": "Returns only the authenticated actor's tenant-membership options before tenant selection. X-Tenant-Id is neither required nor used.",
+        "tags": ["Memberships"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": null,
+        "responses": {
+          "200": {
+            "description": "Authenticated actor membership options ordered by tenant name and tenant ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MembershipListResponse"
+                }
               }
             }
           },
@@ -997,6 +1022,28 @@
       "TenantRole": {
         "type": "string",
         "enum": ["ADMIN", "RECRUITER", "COMPLIANCE_OFFICER", "VIEWER"]
+      },
+      "MembershipOption": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["membershipId", "tenantId", "tenantName", "role"],
+        "properties": {
+          "membershipId": { "$ref": "#/components/schemas/Uuid" },
+          "tenantId": { "$ref": "#/components/schemas/Uuid" },
+          "tenantName": { "type": "string" },
+          "role": { "$ref": "#/components/schemas/TenantRole" }
+        }
+      },
+      "MembershipListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["memberships"],
+        "properties": {
+          "memberships": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/MembershipOption" }
+          }
+        }
       },
       "TenantContext": {
         "type": "object",

@@ -87,6 +87,7 @@ const expectedOperationIds: Record<string, string> = {
   'GET /health': 'getHealth',
   'POST /api/v1/auth/login': 'login',
   'GET /api/v1/auth/me': 'getCurrentUser',
+  'GET /api/v1/memberships': 'listMyMemberships',
   'GET /api/v1/context': 'getTenantContext',
   'POST /api/v1/candidates': 'createCandidate',
   'GET /api/v1/candidates': 'listCandidates',
@@ -117,6 +118,7 @@ const expectedPermissions: Record<string, string | null> = {
   'GET /health': null,
   'POST /api/v1/auth/login': null,
   'GET /api/v1/auth/me': null,
+  'GET /api/v1/memberships': null,
   'GET /api/v1/context': null,
   'POST /api/v1/candidates': 'candidate:create',
   'GET /api/v1/candidates': 'candidate:read',
@@ -143,6 +145,7 @@ const expectedSuccessStatuses: Record<string, string> = {
   'GET /health': '200',
   'POST /api/v1/auth/login': '200',
   'GET /api/v1/auth/me': '200',
+  'GET /api/v1/memberships': '200',
   'GET /api/v1/context': '200',
   'POST /api/v1/candidates': '201',
   'GET /api/v1/candidates': '200',
@@ -170,7 +173,8 @@ const tenantScopedOperations = new Set(
     (key) =>
       key !== 'GET /health' &&
       key !== 'POST /api/v1/auth/login' &&
-      key !== 'GET /api/v1/auth/me',
+      key !== 'GET /api/v1/auth/me' &&
+      key !== 'GET /api/v1/memberships',
   ),
 );
 
@@ -313,7 +317,7 @@ describe('canonical OpenAPI specification', () => {
     );
     expect(specification.components?.securitySchemes?.bearerAuth).toBeDefined();
     expect(specification.components?.schemas?.ProblemDetails).toBeDefined();
-    expect(operations).toHaveLength(23);
+    expect(operations).toHaveLength(24);
   });
 
   it('matches every registered public Express route and no nonexistent route', () => {
@@ -368,6 +372,18 @@ describe('canonical OpenAPI specification', () => {
         ).toContain('Idempotency-Key');
       }
     }
+  });
+
+  it('keeps authenticated membership discovery independent of tenant selection', () => {
+    const discovery = operations.find(
+      ({ key }) => key === 'GET /api/v1/memberships',
+    );
+
+    expect(discovery).toBeDefined();
+    expect(allParameterNames(discovery!)).not.toContain('X-Tenant-Id');
+    expect(allParameterNames(discovery!)).not.toContain('Idempotency-Key');
+    expect(discovery?.operation.security).toContainEqual({ bearerAuth: [] });
+    expect(discovery?.operation['x-required-permission']).toBeNull();
   });
 
   it('declares each expected success and at least one Problem Details response', () => {

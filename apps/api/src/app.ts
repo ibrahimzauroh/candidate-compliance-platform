@@ -12,6 +12,7 @@ import {
   type CvExtractionProvider,
 } from './modules/cv-extractions/cv-extraction.provider.js';
 import { createCvExtractionRouter } from './modules/cv-extractions/cv-extraction.routes.js';
+import { createMembershipRouter } from './modules/memberships/membership.routes.js';
 import { createTenantContextRouter } from './modules/tenant-context/tenant-context.routes.js';
 import { createVerificationRouter } from './modules/verification/verification.routes.js';
 
@@ -38,6 +39,7 @@ export function createApp({
   });
 
   app.use('/api/v1/auth', createAuthRouter(prisma, jwtConfig));
+  app.use('/api/v1/memberships', createMembershipRouter(prisma, jwtConfig));
   app.use('/api/v1/context', createTenantContextRouter(prisma, jwtConfig));
   app.use('/api/v1/candidates', createCandidateRouter(prisma, jwtConfig));
   app.use('/api/v1', createComplianceDocumentRouter(prisma, jwtConfig, now));
