@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository is the foundation for a secure, multi-tenant candidate compliance module. The current phase contains the workspace, local infrastructure, core relational tenant model, deterministic development seed, platform authentication, validated tenant context, operation-specific authorisation, tenant-scoped Candidate and ComplianceDocument APIs, append-only audit ledger, PostgreSQL-backed Right-to-Work verification, API health endpoint, and minimal web shell. AI and frontend workflows are intentionally not implemented yet.
+This repository is the foundation for a secure, multi-tenant candidate compliance module. The current phase contains the workspace, local infrastructure, core relational tenant model, deterministic development seed, platform authentication, validated tenant context, operation-specific authorisation, tenant-scoped Candidate and ComplianceDocument APIs, append-only audit ledger, PostgreSQL-backed Right-to-Work verification, governed CV extraction, API health endpoint, and minimal web shell. Frontend business workflows are intentionally not implemented yet.
 
 ## Architecture summary
 
@@ -158,9 +158,24 @@ GET   /api/v1/verifications/:verificationRequestId
 
 Submission requires `verification:request` and `Idempotency-Key`; status access requires `verification:read`. The request, outbox event, audit event, and idempotency response commit atomically with initial status `requested`. A separate worker moves the request through `pending` to `verified` or `failed`, using a deterministic local verifier and at most three attempts. Tenant-owned requests and outbox rows remain protected by explicit tenant scoping, restricted runtime privileges, and forced PostgreSQL RLS.
 
+## Governed CV extraction
+
+Existing candidates support an advisory CV extraction workflow:
+
+```text
+POST  /api/v1/candidates/:candidateId/cv-extractions
+GET   /api/v1/cv-extractions/:extractionId
+POST  /api/v1/cv-extractions/:extractionId/confirm
+POST  /api/v1/cv-extractions/:extractionId/reject
+```
+
+Extraction requires `ai:extract` and an `Idempotency-Key`. The upload is the raw request body with `Content-Type: text/plain` or `application/pdf`, is limited to 2 MiB, and is processed only in memory. Raw CV bytes and extracted text are not retained. The network-free local provider returns unknown data that must pass strict shared validation before a tenant-owned `PROPOSED` result can be stored.
+
+Reading a proposal requires `ai:extract`; confirming or rejecting it requires `ai:confirm` and an `Idempotency-Key`. Confirmation may supply validated recruiter edits and atomically creates or replaces the candidate's small confirmed profile while retaining the original proposal separately. Rejection changes only the proposal. Neither extraction nor rejection changes, scores, ranks, disables, or rejects the Candidate record. PostgreSQL prevents the runtime role from creating a profile without matching accepted extraction evidence or deciding one proposal twice.
+
 ## Audit ledger
 
-Candidate and compliance-document creates, updates, version creation, retrievals, paginated lists, expiring-document results, and verification creation/state transitions append tenant-scoped audit events. Verification status reads are audited as sensitive reads. Mutation events commit atomically with the domain write and idempotency record; an idempotent replay does not append another mutation event. Events store actor and membership identifiers, the affected record identity, and canonical SHA-256 before/after hashes rather than raw candidate, document, or provider state.
+Candidate and compliance-document creates, updates, version creation, retrievals, paginated lists, expiring-document results, verification creation/state transitions, and governed CV proposal decisions append tenant-scoped audit events. Verification status and CV proposal reads are audited as sensitive reads. Mutation events commit atomically with the domain write and idempotency record; an idempotent replay does not append another mutation event. Events store actor and membership identifiers, the affected record identity, and canonical SHA-256 before/after hashes rather than raw candidate, document, CV text, or provider state.
 
 List reads append one event for each record actually returned, bounded by the existing maximum page size of 100. Empty pages therefore create no record-level event. The restricted runtime role may only insert audit rows; forced RLS checks tenant ownership, and update/delete privileges are withheld. No audit browsing or export API is implemented.
 
@@ -202,7 +217,7 @@ pnpm build
 
 ## OpenAPI
 
-An OpenAPI 3 document will be completed in a later phase. The current API exposes the unversioned health check plus versioned login, authenticated identity, validated tenant context, Candidate, ComplianceDocument, and verification endpoints.
+An OpenAPI 3 document will be completed in a later phase. The current API exposes the unversioned health check plus versioned login, authenticated identity, validated tenant context, Candidate, ComplianceDocument, verification, and governed CV extraction endpoints.
 
 ## Demo users
 
@@ -225,5 +240,6 @@ AI was used for implementation acceleration, refactoring suggestions, test gener
 - Approval currently records the transition through the append-only ledger rather than separate approval-comment or approval-reason fields.
 - The local verifier is deterministic and intentionally does not represent a production identity-check provider; production integration requires provider authentication, idempotency, timeout handling, and operational monitoring.
 - Outbox polling runs as a local Node.js worker without distributed scheduling or leader election.
+- CV extraction uses a deterministic local provider and text extraction only. It has no OCR, external model, prompt orchestration, malware scanning, or permanent file storage; production uploads require additional content-security controls and an explicitly governed provider integration.
 - No frontend business screens are present.
 - Production deployment and observability are outside this foundation phase.

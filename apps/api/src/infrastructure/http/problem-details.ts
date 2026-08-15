@@ -158,6 +158,52 @@ export function verificationAlreadyRequestedProblem(): ProblemError {
   });
 }
 
+export function invalidCvUploadProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Bad Request',
+    status: 400,
+    detail:
+      'CV upload must contain one non-empty PDF or UTF-8 plain-text file no larger than 2 MB.',
+  });
+}
+
+export function cvExtractionProviderFailureProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Bad Gateway',
+    status: 502,
+    detail: 'CV extraction could not be completed.',
+  });
+}
+
+export function invalidCvExtractionResultProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Bad Gateway',
+    status: 502,
+    detail: 'The CV extraction provider returned an invalid response.',
+  });
+}
+
+export function cvExtractionNotFoundProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Not Found',
+    status: 404,
+    detail: 'CV extraction was not found.',
+  });
+}
+
+export function cvExtractionDecisionConflictProblem(): ProblemError {
+  return new ProblemError({
+    type: 'about:blank',
+    title: 'Conflict',
+    status: 409,
+    detail: 'This CV extraction proposal has already been decided.',
+  });
+}
+
 export function idempotencyKeyRequiredProblem(): ProblemError {
   return new ProblemError({
     type: 'about:blank',

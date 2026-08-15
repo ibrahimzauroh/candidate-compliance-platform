@@ -20,6 +20,9 @@ export const IDEMPOTENCY_OPERATIONS = {
   documentApprove: 'document:approve',
   documentCorrect: 'document:correct',
   verificationRequest: 'verification:request',
+  aiExtract: 'ai:extract',
+  aiConfirm: 'ai:confirm',
+  aiReject: 'ai:reject',
 } as const;
 
 export type IdempotencyOperation =

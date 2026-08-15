@@ -20,6 +20,10 @@ export const AUDIT_ACTIONS = {
   verificationPending: 'verification:pending',
   verificationVerified: 'verification:verified',
   verificationFailed: 'verification:failed',
+  aiExtract: 'ai:extract',
+  aiRead: 'ai:read',
+  aiConfirm: 'ai:confirm',
+  aiReject: 'ai:reject',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
@@ -28,6 +32,7 @@ export const AUDIT_RECORD_TYPES = {
   candidate: 'candidate',
   complianceDocument: 'compliance_document',
   verificationRequest: 'verification_request',
+  cvExtraction: 'cv_extraction',
 } as const;
 
 export type AuditRecordType =
