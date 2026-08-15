@@ -50,6 +50,20 @@ enum OutboxEventType {
   @@map("outbox_event_type")
 }
 
+enum CvExtractionPurpose {
+  CANDIDATE_PROFILE
+
+  @@map("cv_extraction_purpose")
+}
+
+enum CvExtractionStatus {
+  PROPOSED
+  ACCEPTED
+  REJECTED
+
+  @@map("cv_extraction_status")
+}
+
 model Tenant {
   id                 String                      @id @default(uuid()) @db.Uuid
   name               String
@@ -62,6 +76,8 @@ model Tenant {
   idempotencyRecords IdempotencyRecord[]
   verificationRequests VerificationRequest[]
   outboxEvents         OutboxEvent[]
+  cvExtractions CvExtraction[]
+  candidateProfiles CandidateProfile[]
 
   @@map("tenants")
 }
@@ -75,6 +91,8 @@ model User {
   updatedAt    DateTime           @updatedAt @map("updated_at")
   memberships  TenantMembership[]
   verificationRequests VerificationRequest[]
+  requestedCvExtractions CvExtraction[] @relation("CvExtractionRequesterUser")
+  reviewedCvExtractions CvExtraction[] @relation("CvExtractionReviewerUser")
 
   @@map("users")
 }
@@ -90,6 +108,8 @@ model TenantMembership {
   createdVersions    ComplianceDocumentVersion[]
   idempotencyRecords IdempotencyRecord[]
   verificationRequests VerificationRequest[]
+  requestedCvExtractions CvExtraction[] @relation("CvExtractionRequesterMembership")
+  reviewedCvExtractions CvExtraction[] @relation("CvExtractionReviewerMembership")
 
   @@unique([tenantId, userId])
   @@unique([tenantId, id])
@@ -107,6 +127,8 @@ model Candidate {
   updatedAt      DateTime             @updatedAt @map("updated_at")
   tenant         Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   documents      ComplianceDocument[]
+  cvExtractions CvExtraction[]
+  profile CandidateProfile?
 
   @@unique([tenantId, email])
   @@unique([tenantId, id])
@@ -241,4 +263,56 @@ model OutboxEvent {
   @@index([processedAt, availableAt, lockedUntil, createdAt])
   @@index([tenantId, createdAt])
   @@map("outbox_events")
+}
+
+model CvExtraction {
+  id                      String              @id @default(uuid()) @db.Uuid
+  tenantId                String              @map("tenant_id") @db.Uuid
+  candidateId             String              @map("candidate_id") @db.Uuid
+  requestedByUserId       String              @map("requested_by_user_id") @db.Uuid
+  requestedByMembershipId String              @map("requested_by_membership_id") @db.Uuid
+  purpose                 CvExtractionPurpose @default(CANDIDATE_PROFILE)
+  provider                String              @db.VarChar(100)
+  model                   String              @db.VarChar(100)
+  proposedOutput          Json                @map("proposed_output")
+  status                  CvExtractionStatus  @default(PROPOSED)
+  reviewedByUserId        String?             @map("reviewed_by_user_id") @db.Uuid
+  reviewedByMembershipId  String?             @map("reviewed_by_membership_id") @db.Uuid
+  decidedAt               DateTime?           @map("decided_at")
+  confirmedOutput         Json?               @map("confirmed_output")
+  createdAt               DateTime            @default(now()) @map("created_at")
+  updatedAt               DateTime            @updatedAt @map("updated_at")
+  tenant                  Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  candidate               Candidate           @relation(fields: [tenantId, candidateId], references: [tenantId, id], onDelete: Restrict)
+  requestedByUser         User                @relation("CvExtractionRequesterUser", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  reviewedByUser          User?               @relation("CvExtractionReviewerUser", fields: [reviewedByUserId], references: [id], onDelete: Restrict)
+  requestedByMembership   TenantMembership    @relation("CvExtractionRequesterMembership", fields: [tenantId, requestedByMembershipId], references: [tenantId, id], onDelete: Restrict)
+  reviewedByMembership    TenantMembership?   @relation("CvExtractionReviewerMembership", fields: [tenantId, reviewedByMembershipId], references: [tenantId, id], onDelete: Restrict)
+  candidateProfile        CandidateProfile?
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, candidateId, id])
+  @@index([tenantId, candidateId, createdAt(sort: Desc), id])
+  @@map("cv_extractions")
+}
+
+model CandidateProfile {
+  id                 String       @id @default(uuid()) @db.Uuid
+  tenantId           String       @map("tenant_id") @db.Uuid
+  candidateId        String       @map("candidate_id") @db.Uuid
+  sourceExtractionId String       @map("source_extraction_id") @db.Uuid
+  fullName           String       @map("full_name") @db.VarChar(200)
+  skills             Json
+  yearsOfExperience  Int          @map("years_of_experience")
+  certifications     Json
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+  tenant             Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  candidate          Candidate    @relation(fields: [tenantId, candidateId], references: [tenantId, id], onDelete: Restrict)
+  sourceExtraction   CvExtraction @relation(fields: [tenantId, candidateId, sourceExtractionId], references: [tenantId, candidateId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, candidateId])
+  @@unique([tenantId, candidateId, sourceExtractionId])
+  @@map("candidate_profiles")
 }

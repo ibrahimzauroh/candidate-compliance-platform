@@ -76,6 +76,17 @@ const ids = {
     zauroh: '74000000-0000-4000-8000-000000000001',
     khaleel: '74000000-0000-4000-8000-000000000002',
   },
+  cvExtractions: {
+    zauroh: '75000000-0000-4000-8000-000000000001',
+    khaleel: '75000000-0000-4000-8000-000000000002',
+    rejectedInsert: '75000000-0000-4000-8000-000000000003',
+    proposedSource: '75000000-0000-4000-8000-000000000004',
+  },
+  candidateProfiles: {
+    zauroh: '76000000-0000-4000-8000-000000000001',
+    khaleel: '76000000-0000-4000-8000-000000000002',
+    rejectedInsert: '76000000-0000-4000-8000-000000000003',
+  },
 } as const;
 
 const zaurohSeedCandidateIds = [
@@ -260,9 +271,75 @@ beforeAll(async () => {
     ],
     skipDuplicates: true,
   });
+  const proposedOutput = {
+    fullName: 'RLS Candidate',
+    skills: ['PostgreSQL'],
+    yearsOfExperience: 5,
+    certifications: [],
+  };
+  await adminPrisma.cvExtraction.createMany({
+    data: [
+      {
+        id: ids.cvExtractions.zauroh,
+        tenantId: ids.tenants.zauroh,
+        candidateId: ids.candidates.zaurohAlex,
+        requestedByUserId: ids.users.admin,
+        requestedByMembershipId: ids.memberships.zaurohAdmin,
+        provider: 'rls-test-provider',
+        model: 'rls-test-model',
+        proposedOutput,
+        status: 'ACCEPTED',
+        reviewedByUserId: ids.users.admin,
+        reviewedByMembershipId: ids.memberships.zaurohAdmin,
+        decidedAt: completedAt,
+        confirmedOutput: proposedOutput,
+      },
+      {
+        id: ids.cvExtractions.khaleel,
+        tenantId: ids.tenants.khaleel,
+        candidateId: ids.candidates.khaleelAlex,
+        requestedByUserId: ids.users.shared,
+        requestedByMembershipId: ids.memberships.khaleelShared,
+        provider: 'rls-test-provider',
+        model: 'rls-test-model',
+        proposedOutput,
+        status: 'ACCEPTED',
+        reviewedByUserId: ids.users.shared,
+        reviewedByMembershipId: ids.memberships.khaleelShared,
+        decidedAt: completedAt,
+        confirmedOutput: proposedOutput,
+      },
+    ],
+    skipDuplicates: true,
+  });
+  await adminPrisma.candidateProfile.createMany({
+    data: [
+      {
+        id: ids.candidateProfiles.zauroh,
+        tenantId: ids.tenants.zauroh,
+        candidateId: ids.candidates.zaurohAlex,
+        sourceExtractionId: ids.cvExtractions.zauroh,
+        ...proposedOutput,
+      },
+      {
+        id: ids.candidateProfiles.khaleel,
+        tenantId: ids.tenants.khaleel,
+        candidateId: ids.candidates.khaleelAlex,
+        sourceExtractionId: ids.cvExtractions.khaleel,
+        ...proposedOutput,
+      },
+    ],
+    skipDuplicates: true,
+  });
 });
 
 afterAll(async () => {
+  await adminPrisma.candidateProfile.deleteMany({
+    where: { id: { in: Object.values(ids.candidateProfiles) } },
+  });
+  await adminPrisma.cvExtraction.deleteMany({
+    where: { id: { in: Object.values(ids.cvExtractions) } },
+  });
   await adminPrisma.outboxEvent.deleteMany({
     where: { id: { in: Object.values(ids.outboxEvents) } },
   });
@@ -312,7 +389,9 @@ describe('restricted runtime database role', () => {
           'idempotency_records',
           'audit_events',
           'verification_requests',
-          'outbox_events'
+          'outbox_events',
+          'cv_extractions',
+          'candidate_profiles'
         )
       ORDER BY class.relname
     `;
@@ -326,7 +405,7 @@ describe('restricted runtime database role', () => {
         rolcreaterole: false,
       },
     ]);
-    expect(tables).toHaveLength(8);
+    expect(tables).toHaveLength(10);
     expect(
       tables.every((table) => table.owner === 'candidate_compliance'),
     ).toBe(true);
@@ -353,6 +432,8 @@ describe('restricted runtime database role', () => {
 
     expect(grants).toEqual([
       { table_name: 'audit_events', privilege_type: 'INSERT' },
+      { table_name: 'candidate_profiles', privilege_type: 'INSERT' },
+      { table_name: 'candidate_profiles', privilege_type: 'SELECT' },
       { table_name: 'candidates', privilege_type: 'INSERT' },
       { table_name: 'candidates', privilege_type: 'SELECT' },
       { table_name: 'candidates', privilege_type: 'UPDATE' },
@@ -367,6 +448,8 @@ describe('restricted runtime database role', () => {
       { table_name: 'compliance_documents', privilege_type: 'INSERT' },
       { table_name: 'compliance_documents', privilege_type: 'SELECT' },
       { table_name: 'compliance_documents', privilege_type: 'UPDATE' },
+      { table_name: 'cv_extractions', privilege_type: 'INSERT' },
+      { table_name: 'cv_extractions', privilege_type: 'SELECT' },
       { table_name: 'idempotency_records', privilege_type: 'INSERT' },
       { table_name: 'idempotency_records', privilege_type: 'SELECT' },
       { table_name: 'outbox_events', privilege_type: 'INSERT' },
@@ -418,6 +501,45 @@ describe('restricted runtime database role', () => {
       { table_name: 'verification_requests', column_name: 'started_at' },
       { table_name: 'verification_requests', column_name: 'status' },
       { table_name: 'verification_requests', column_name: 'updated_at' },
+    ]);
+
+    const aiUpdateColumns = await adminPrisma.$queryRaw<
+      Array<{ table_name: string; column_name: string }>
+    >`
+      SELECT table_name, column_name
+      FROM information_schema.role_column_grants
+      WHERE grantee = 'candidate_compliance_app'
+        AND table_schema = 'public'
+        AND table_name IN ('cv_extractions', 'candidate_profiles')
+        AND privilege_type = 'UPDATE'
+      ORDER BY table_name, column_name
+    `;
+
+    expect(aiUpdateColumns).toEqual([
+      { table_name: 'candidate_profiles', column_name: 'certifications' },
+      { table_name: 'candidate_profiles', column_name: 'full_name' },
+      { table_name: 'candidate_profiles', column_name: 'skills' },
+      {
+        table_name: 'candidate_profiles',
+        column_name: 'source_extraction_id',
+      },
+      { table_name: 'candidate_profiles', column_name: 'updated_at' },
+      {
+        table_name: 'candidate_profiles',
+        column_name: 'years_of_experience',
+      },
+      { table_name: 'cv_extractions', column_name: 'confirmed_output' },
+      { table_name: 'cv_extractions', column_name: 'decided_at' },
+      {
+        table_name: 'cv_extractions',
+        column_name: 'reviewed_by_membership_id',
+      },
+      {
+        table_name: 'cv_extractions',
+        column_name: 'reviewed_by_user_id',
+      },
+      { table_name: 'cv_extractions', column_name: 'status' },
+      { table_name: 'cv_extractions', column_name: 'updated_at' },
     ]);
   });
 
@@ -772,7 +894,9 @@ describe('forced tenant row-level security', () => {
           'idempotency_records',
           'audit_events',
           'verification_requests',
-          'outbox_events'
+          'outbox_events',
+          'cv_extractions',
+          'candidate_profiles'
         )
       ORDER BY class.relname
     `;
@@ -791,13 +915,13 @@ describe('forced tenant row-level security', () => {
       ORDER BY tablename, policyname
     `;
 
-    expect(tables).toHaveLength(8);
+    expect(tables).toHaveLength(10);
     expect(
       tables.every(
         (table) => table.relrowsecurity && table.relforcerowsecurity,
       ),
     ).toBe(true);
-    expect(policies).toHaveLength(8);
+    expect(policies).toHaveLength(10);
     const auditPolicy = policies.find(
       (policy) => policy.tablename === 'audit_events',
     );
@@ -841,6 +965,10 @@ describe('forced tenant row-level security', () => {
       [],
     );
     await expect(runtimePrisma.outboxEvent.findMany()).resolves.toEqual([]);
+    await expect(runtimePrisma.cvExtraction.findMany()).resolves.toEqual([]);
+    await expect(runtimePrisma.candidateProfile.findMany()).resolves.toEqual(
+      [],
+    );
     await expect(runtimePrisma.auditEvent.findMany()).rejects.toThrow();
   });
 
@@ -1031,6 +1159,137 @@ describe('forced tenant row-level security', () => {
     await expect(
       adminPrisma.verificationRequest.findUnique({
         where: { id: ids.verificationRequests.rejectedInsert },
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it('isolates CV proposals and confirmed profiles and rejects cross-tenant writes', async () => {
+    const [zauroh, khaleel] = await Promise.all([
+      withTenantTransaction(
+        runtimePrisma,
+        zaurohContext,
+        async (transaction) => ({
+          extractions: await transaction.cvExtraction.findMany({
+            where: { id: { in: Object.values(ids.cvExtractions) } },
+          }),
+          profiles: await transaction.candidateProfile.findMany({
+            where: { id: { in: Object.values(ids.candidateProfiles) } },
+          }),
+        }),
+      ),
+      withTenantTransaction(
+        runtimePrisma,
+        khaleelContext,
+        async (transaction) => ({
+          extractions: await transaction.cvExtraction.findMany({
+            where: { id: { in: Object.values(ids.cvExtractions) } },
+          }),
+          profiles: await transaction.candidateProfile.findMany({
+            where: { id: { in: Object.values(ids.candidateProfiles) } },
+          }),
+        }),
+      ),
+    ]);
+
+    expect(zauroh.extractions.map(({ id }) => id)).toEqual([
+      ids.cvExtractions.zauroh,
+    ]);
+    expect(zauroh.profiles.map(({ id }) => id)).toEqual([
+      ids.candidateProfiles.zauroh,
+    ]);
+    expect(khaleel.extractions.map(({ id }) => id)).toEqual([
+      ids.cvExtractions.khaleel,
+    ]);
+    expect(khaleel.profiles.map(({ id }) => id)).toEqual([
+      ids.candidateProfiles.khaleel,
+    ]);
+
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.cvExtraction.create({
+          data: {
+            id: ids.cvExtractions.rejectedInsert,
+            tenantId: ids.tenants.khaleel,
+            candidateId: ids.candidates.khaleelAlex,
+            requestedByUserId: ids.users.shared,
+            requestedByMembershipId: ids.memberships.khaleelShared,
+            provider: 'rejected-provider',
+            model: 'rejected-model',
+            proposedOutput: {
+              fullName: 'Rejected Insert',
+              skills: [],
+              yearsOfExperience: 0,
+              certifications: [],
+            },
+          },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.cvExtraction.update({
+          where: { id: ids.cvExtractions.zauroh },
+          data: {
+            status: 'REJECTED',
+            reviewedByUserId: zaurohContext.userId,
+            reviewedByMembershipId: zaurohContext.membershipId,
+            decidedAt: new Date('2026-08-14T23:00:00.000Z'),
+          },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.cvExtraction.create({
+          data: {
+            id: ids.cvExtractions.proposedSource,
+            tenantId: ids.tenants.zauroh,
+            candidateId: ids.candidates.zaurohMorgan,
+            requestedByUserId: zaurohContext.userId,
+            requestedByMembershipId: zaurohContext.membershipId,
+            provider: 'proposed-source-provider',
+            model: 'proposed-source-model',
+            proposedOutput: {
+              fullName: 'Undecided Profile',
+              skills: [],
+              yearsOfExperience: 0,
+              certifications: [],
+            },
+          },
+        }),
+      ),
+    ).resolves.toMatchObject({ id: ids.cvExtractions.proposedSource });
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.candidateProfile.create({
+          data: {
+            id: ids.candidateProfiles.rejectedInsert,
+            tenantId: ids.tenants.zauroh,
+            candidateId: ids.candidates.zaurohMorgan,
+            sourceExtractionId: ids.cvExtractions.proposedSource,
+            fullName: 'Undecided Profile',
+            skills: [],
+            yearsOfExperience: 0,
+            certifications: [],
+          },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      withTenantTransaction(runtimePrisma, zaurohContext, (transaction) =>
+        transaction.candidateProfile.delete({
+          where: { id: ids.candidateProfiles.zauroh },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      adminPrisma.cvExtraction.findUnique({
+        where: { id: ids.cvExtractions.rejectedInsert },
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      adminPrisma.candidateProfile.findUnique({
+        where: { id: ids.candidateProfiles.rejectedInsert },
       }),
     ).resolves.toBeNull();
   });

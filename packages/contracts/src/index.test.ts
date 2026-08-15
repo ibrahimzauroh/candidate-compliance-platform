@@ -6,11 +6,15 @@ import {
   candidateDocumentListResponseSchema,
   candidateListQuerySchema,
   candidateListResponseSchema,
+  confirmCvExtractionRequestSchema,
   complianceDocumentSchema,
   correctComplianceDocumentRequestSchema,
   createComplianceDocumentRequestSchema,
   createComplianceDocumentVersionRequestSchema,
   createCandidateRequestSchema,
+  cvExtractionIdParamsSchema,
+  cvExtractionSchema,
+  cvProfileSchema,
   expiringComplianceDocumentListQuerySchema,
   expiringComplianceDocumentListResponseSchema,
   healthResponseSchema,
@@ -419,5 +423,70 @@ describe('verification contracts', () => {
         failureCode: 'raw provider error with spaces',
       }),
     ).toThrow();
+  });
+});
+
+describe('governed CV extraction contracts', () => {
+  const profile = {
+    fullName: 'Alex Morgan',
+    skills: ['TypeScript', 'PostgreSQL'],
+    yearsOfExperience: 7,
+    certifications: ['AWS Certified Developer'],
+  };
+
+  it('normalises and deduplicates bounded profile lists', () => {
+    expect(
+      cvProfileSchema.parse({
+        ...profile,
+        fullName: '  Alex Morgan  ',
+        skills: [' TypeScript ', 'typescript', 'PostgreSQL'],
+        certifications: ['AWS Certified Developer', 'aws certified developer'],
+      }),
+    ).toEqual(profile);
+  });
+
+  it('strictly rejects malformed, unbounded, and extra provider fields', () => {
+    expect(() =>
+      cvProfileSchema.parse({
+        ...profile,
+        yearsOfExperience: 81,
+      }),
+    ).toThrow();
+    expect(() =>
+      cvProfileSchema.parse({
+        ...profile,
+        skills: Array.from({ length: 51 }, (_, index) => `Skill ${index}`),
+      }),
+    ).toThrow();
+    expect(() =>
+      cvProfileSchema.parse({
+        ...profile,
+        candidateScore: 98,
+      }),
+    ).toThrow();
+  });
+
+  it('validates edited confirmations, identifiers, and proposal responses', () => {
+    expect(confirmCvExtractionRequestSchema.parse(profile)).toEqual(profile);
+    expect(
+      cvExtractionIdParamsSchema.parse({
+        extractionId: '75000000-0000-4000-8000-000000000001',
+      }),
+    ).toEqual({ extractionId: '75000000-0000-4000-8000-000000000001' });
+    expect(
+      cvExtractionSchema.parse({
+        id: '75000000-0000-4000-8000-000000000001',
+        candidateId: '40000000-0000-4000-8000-000000000001',
+        purpose: 'CANDIDATE_PROFILE',
+        provider: 'local-mock',
+        model: 'deterministic-cv-extractor-v1',
+        status: 'PROPOSED',
+        proposedOutput: profile,
+        confirmedOutput: null,
+        createdAt: '2026-08-14T23:00:00.000Z',
+        decidedAt: null,
+        updatedAt: '2026-08-14T23:00:00.000Z',
+      }),
+    ).toMatchObject({ status: 'PROPOSED', proposedOutput: profile });
   });
 });

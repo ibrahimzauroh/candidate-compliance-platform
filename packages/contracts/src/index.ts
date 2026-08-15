@@ -293,6 +293,68 @@ export const verificationRequestSchema = z.strictObject({
 
 export type VerificationRequest = z.infer<typeof verificationRequestSchema>;
 
+function normalisedUniqueList(itemMaxLength: number) {
+  return z
+    .array(z.string().trim().min(1).max(itemMaxLength))
+    .max(50)
+    .transform((values) => {
+      const seen = new Set<string>();
+
+      return values.filter((value) => {
+        const normalised = value.toLowerCase();
+
+        if (seen.has(normalised)) {
+          return false;
+        }
+
+        seen.add(normalised);
+        return true;
+      });
+    });
+}
+
+export const cvProfileSchema = z.strictObject({
+  fullName: z.string().trim().min(1).max(200),
+  skills: normalisedUniqueList(100),
+  yearsOfExperience: z.number().int().min(0).max(80),
+  certifications: normalisedUniqueList(200),
+});
+
+export type CvProfile = z.infer<typeof cvProfileSchema>;
+
+export const cvExtractionIdParamsSchema = z.strictObject({
+  extractionId: z.uuid(),
+});
+
+export const confirmCvExtractionRequestSchema = cvProfileSchema;
+export type ConfirmCvExtractionRequest = z.infer<
+  typeof confirmCvExtractionRequestSchema
+>;
+
+export const rejectCvExtractionRequestSchema = z.strictObject({});
+
+export const cvExtractionStatusSchema = z.enum([
+  'PROPOSED',
+  'ACCEPTED',
+  'REJECTED',
+]);
+
+export const cvExtractionSchema = z.strictObject({
+  id: z.uuid(),
+  candidateId: z.uuid(),
+  purpose: z.literal('CANDIDATE_PROFILE'),
+  provider: z.string().min(1).max(100),
+  model: z.string().min(1).max(100),
+  status: cvExtractionStatusSchema,
+  proposedOutput: cvProfileSchema,
+  confirmedOutput: cvProfileSchema.nullable(),
+  createdAt: z.iso.datetime(),
+  decidedAt: z.iso.datetime().nullable(),
+  updatedAt: z.iso.datetime(),
+});
+
+export type CvExtraction = z.infer<typeof cvExtractionSchema>;
+
 export const idempotencyKeySchema = z
   .string()
   .trim()

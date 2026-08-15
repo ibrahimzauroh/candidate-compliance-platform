@@ -1,6 +1,6 @@
 # API Reference
 
-This document describes the currently implemented Candidate, ComplianceDocument, and verification APIs. It is a concise developer reference, not a replacement for the planned OpenAPI document.
+This document describes the currently implemented Candidate, ComplianceDocument, verification, and governed CV extraction APIs. It is a concise developer reference, not a replacement for the planned OpenAPI document.
 
 ## Protected-route headers
 
@@ -11,7 +11,7 @@ Authorization: Bearer <token>
 X-Tenant-Id: <tenant-uuid>
 ```
 
-Writes also require `Content-Type: application/json`. The tenant header is validated against the authenticated actor's memberships; it is not accepted from a path, query parameter, or request body.
+JSON writes require `Content-Type: application/json`. CV upload writes instead use a bounded raw `text/plain` or `application/pdf` body. The tenant header is validated against the authenticated actor's memberships; it is not accepted from a path, query parameter, or request body.
 
 All mutation routes additionally require:
 
@@ -45,11 +45,11 @@ Protected routes can return RFC 9457-style Problem Details with content type `ap
 
 ## Audit behaviour
 
-Successful candidate and compliance-document creates, updates, version creation, approval, correction, retrievals, list results, and expiring-document results append tenant-scoped audit events. Creates have a null before hash and a canonical SHA-256 after hash. Updates, version creation, approval, and correction hash the before and after public state, while reads have a null before hash and hash the returned state.
+Successful candidate and compliance-document creates, updates, version creation, approval, correction, retrievals, list results, expiring-document results, verification transitions, and governed CV proposal decisions append tenant-scoped audit events. Creates have a null before hash and a canonical SHA-256 after hash. Updates and decisions hash the before and after public state, while reads have a null before hash and hash the returned state.
 
 Mutation events are written in the same tenant transaction as the domain mutation and idempotency result. Failed operations roll back without an event, and replaying an already committed idempotent mutation does not append a duplicate. List endpoints append one event per returned record, bounded by `pageSize <= 100`; an empty page has no record to audit and therefore appends no event.
 
-The ledger stores tenant, actor, membership, action, record identity, hashes, timestamp, and an empty metadata object unless non-PII metadata becomes necessary. It does not store the public response or raw candidate/document fields. There is no audit browsing or export endpoint.
+The ledger stores tenant, actor, membership, action, record identity, hashes, timestamp, and minimal non-PII metadata where necessary. It does not store the public response, raw candidate/document fields, CV bytes, extracted CV text, prompts, or provider errors. There is no audit browsing or export endpoint.
 
 ## Candidate representation
 
@@ -546,6 +546,73 @@ The separate local worker claims due outbox events with row locking and `SKIP LO
 The deterministic local verifier returns `failed` when the approved version has no expiry date or is expired relative to the worker's UTC date; otherwise it returns `verified`. Unexpected verifier failures release the event for a bounded retry. After three unsuccessful attempts the request becomes `failed` with `MAX_ATTEMPTS_EXCEEDED`. An event whose final lease expired after a worker crash is reclaimed only to record that terminal state; it does not invoke the verifier again. Completed events have `processedAt` set and are not claimed again.
 
 Request creation, transition to `pending`, and terminal transitions are audited with canonical before/after hashes. Outbox rows store identifiers, claim timestamps, attempt counts, and minimal failure codes only.
+
+## CV extraction representation
+
+CV extraction responses use this shape:
+
+```json
+{
+  "id": "75000000-0000-4000-8000-000000000001",
+  "candidateId": "40000000-0000-4000-8000-000000000001",
+  "purpose": "CANDIDATE_PROFILE",
+  "provider": "local-mock",
+  "model": "deterministic-cv-extractor-v1",
+  "status": "PROPOSED",
+  "proposedOutput": {
+    "fullName": "Alex Morgan",
+    "skills": ["TypeScript", "PostgreSQL"],
+    "yearsOfExperience": 7,
+    "certifications": ["AWS Certified Developer"]
+  },
+  "confirmedOutput": null,
+  "createdAt": "2026-08-14T23:00:00.000Z",
+  "decidedAt": null,
+  "updatedAt": "2026-08-14T23:00:00.000Z"
+}
+```
+
+Lists contain at most 50 normalised, case-insensitively deduplicated entries. Names and certifications are limited to 200 characters, skills to 100 characters, and whole years of experience to 0 through 80. Provider output and recruiter edits use the same strict schema; unknown fields are rejected.
+
+## Upload and extract a CV
+
+`POST /api/v1/candidates/:candidateId/cv-extractions`
+
+Requires `ai:extract` and `Idempotency-Key`. Send the CV as the raw request body with `Content-Type: text/plain` or `application/pdf`. The body is limited to 2 MiB, extracted text is limited to 100,000 characters, UTF-8 text must decode strictly, and PDF content must have a PDF signature and yield non-empty text.
+
+The file is processed in memory and is not retained. The deterministic network-free provider treats all extracted text as untrusted input and returns `unknown`; persistence occurs only after strict contract validation. The candidate and any confirmed profile remain unchanged. Success is `201 Created` with status `PROPOSED`.
+
+Relevant errors:
+
+- `400 Bad Request` — upload type, size, content, candidate ID, or `Idempotency-Key` is invalid.
+- `403 Forbidden` — tenant context is unavailable or `ai:extract` is denied.
+- `404 Not Found` — the candidate is nonexistent or unavailable in the selected tenant.
+- `409 Conflict` — the scoped idempotency key was already used for different content.
+- `502 Bad Gateway` — the provider failed or returned invalid output; provider details are not exposed.
+
+Identical retries replay the original proposal without re-running persistence or appending another extraction audit event. The fingerprint contains trusted operation scope plus candidate ID, media type, and a SHA-256 content hash rather than raw CV content.
+
+## Retrieve a CV extraction
+
+`GET /api/v1/cv-extractions/:extractionId`
+
+Requires `ai:extract`. Returns `200 OK` with the extraction representation visible to the validated tenant and appends a sensitive-read audit event. Cross-tenant and nonexistent identifiers return the same `404 Not Found` shape.
+
+## Confirm a CV extraction
+
+`POST /api/v1/cv-extractions/:extractionId/confirm`
+
+Requires `ai:confirm`, `Idempotency-Key`, and a complete profile body matching `proposedOutput`. Recruiter edits are allowed and are normalised and validated before use. Confirmation atomically transitions `PROPOSED` to `ACCEPTED`, stores the confirmed output separately, creates or replaces the candidate's tenant-owned profile, appends the decision audit event, and commits the idempotency result. The original proposal is retained unchanged.
+
+Success is `200 OK`. An identical retry replays the response without another profile write or audit event. Invalid edits return `400 Bad Request`; a decided proposal or conflicting key reuse returns `409 Conflict`.
+
+## Reject a CV extraction
+
+`POST /api/v1/cv-extractions/:extractionId/reject`
+
+Requires `ai:confirm`, `Idempotency-Key`, and an empty JSON object. Rejection atomically transitions `PROPOSED` to `REJECTED` and appends a decision audit event. It does not create a profile or change, score, rank, disable, or reject the Candidate record. Identical retries replay the original `200 OK`; a second semantic decision returns `409 Conflict`.
+
+The database restricts runtime updates to decision/profile columns, applies forced tenant RLS, prevents a decided proposal from transitioning again, and rejects candidate profiles without matching accepted extraction evidence.
 
 ## Current versioning limitations
 
