@@ -53,6 +53,7 @@ Run the broader validation commands before submission:
 
 ```powershell
 corepack pnpm test
+corepack pnpm test:web
 corepack pnpm openapi:check
 corepack pnpm lint
 corepack pnpm typecheck
@@ -97,6 +98,7 @@ Run the broader validation commands before submission:
 
 ```bash
 corepack pnpm test
+corepack pnpm test:web
 corepack pnpm openapi:check
 corepack pnpm lint
 corepack pnpm typecheck
@@ -109,9 +111,11 @@ documentation pass did not execute or platform-verify it on macOS or Linux.
 ## Shared smoke-test behaviour
 
 `pnpm e2e:smoke` runs the real HTTP, PostgreSQL, and verification smoke journey.
-`pnpm test` runs the full Vitest suite. Run both before submission; the smoke
-test is not a replacement for the complete test suite. Frontend and browser
-acceptance testing is performed separately.
+`pnpm test` runs the full Vitest suite, while `pnpm test:web` runs the focused
+frontend component and server-boundary tests. Run all three before submission;
+the smoke test is not a replacement for the complete test suite. Rendered
+browser acceptance remains separate and no `pnpm e2e:web` command is currently
+implemented.
 
 The smoke test mutates only the explicitly approved local disposable database.
 Run-scoped Candidate and document records are logically removed but

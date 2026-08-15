@@ -15,6 +15,7 @@ interface ApiRequestOptions<T> {
   method?: 'GET' | 'POST';
   token?: string;
   tenantId?: string;
+  idempotencyKey?: string;
   body?: unknown;
 }
 
@@ -102,6 +103,7 @@ export async function requestApi<T>({
   method = 'GET',
   token,
   tenantId,
+  idempotencyKey,
   body,
 }: ApiRequestOptions<T>): Promise<T> {
   const headers = new Headers({ Accept: 'application/json' });
@@ -112,6 +114,10 @@ export async function requestApi<T>({
 
   if (tenantId) {
     headers.set('X-Tenant-Id', tenantId);
+  }
+
+  if (idempotencyKey) {
+    headers.set('Idempotency-Key', idempotencyKey);
   }
 
   if (body !== undefined) {

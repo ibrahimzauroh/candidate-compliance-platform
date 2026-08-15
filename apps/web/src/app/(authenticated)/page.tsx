@@ -44,12 +44,12 @@ export default function OverviewPage() {
 
       <div className="next-work-card">
         <div>
-          <p className="section-label">Foundation only</p>
-          <h2>Candidate workflows follow in a later phase.</h2>
+          <p className="section-label">Candidate operations</p>
+          <h2>Candidate intake is ready.</h2>
         </div>
         <p>
-          This screen intentionally contains no Candidate, document,
-          verification or CV operations yet.
+          Open Candidates to search active records or add a candidate. Document,
+          verification and CV workflows remain intentionally unavailable.
         </p>
       </div>
     </section>

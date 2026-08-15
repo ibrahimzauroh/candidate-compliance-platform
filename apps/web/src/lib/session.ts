@@ -8,6 +8,7 @@ import {
   type UserIdentity,
 } from '@candidate-compliance/contracts';
 import { cookies } from 'next/headers';
+import { cache } from 'react';
 
 import { ApiRequestError, requestApi } from './server-api';
 import { resolveMembershipSelection } from './selection';
@@ -48,11 +49,11 @@ export async function authenticatedMemberships(
   });
 }
 
-export async function readyTenantSession(): Promise<ReadyTenantSession | null> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-
-  if (!token) {
+export async function validateTenantSession(
+  token: string,
+  selectedTenantId: string | undefined,
+): Promise<ReadyTenantSession | null> {
+  if (!selectedTenantId) {
     return null;
   }
 
@@ -64,7 +65,6 @@ export async function readyTenantSession(): Promise<ReadyTenantSession | null> {
     }),
     authenticatedMemberships(token),
   ]);
-  const selectedTenantId = cookieStore.get(TENANT_COOKIE_NAME)?.value;
   const selection = resolveMembershipSelection(
     membershipResponse.memberships,
     selectedTenantId,
@@ -102,3 +102,19 @@ export async function readyTenantSession(): Promise<ReadyTenantSession | null> {
     tenantContext,
   };
 }
+
+export const readyTenantSession = cache(
+  async function readyTenantSession(): Promise<ReadyTenantSession | null> {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+
+    if (!token) {
+      return null;
+    }
+
+    return validateTenantSession(
+      token,
+      cookieStore.get(TENANT_COOKIE_NAME)?.value,
+    );
+  },
+);

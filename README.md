@@ -2,11 +2,11 @@
 
 ## Overview
 
-This repository is the foundation for a secure, multi-tenant candidate compliance module. The current phase contains the workspace, local infrastructure, core relational tenant model, deterministic development seed, platform authentication, validated tenant context, operation-specific authorisation, tenant-scoped Candidate and ComplianceDocument APIs, append-only audit ledger, PostgreSQL-backed Right-to-Work verification, governed CV extraction, API health endpoint, and minimal web shell. Frontend business workflows are intentionally not implemented yet.
+This repository implements a secure, multi-tenant candidate compliance module. It includes local infrastructure, a relational tenant model, deterministic development fixtures, platform authentication, validated tenant context, operation-specific authorisation, tenant-scoped Candidate and ComplianceDocument APIs, an append-only audit ledger, PostgreSQL-backed Right-to-Work verification, governed CV extraction, and a focused authenticated web application. The frontend supports sign-in, actor-scoped membership discovery, backend-validated tenant selection, a protected application shell, and Candidate list and creation workflows. Candidate detail and the document, verification, and CV frontend workflows remain intentionally deferred.
 
 ## Architecture summary
 
-The project is a pnpm monorepo with an Express API, a Next.js web application, shared validation contracts, and PostgreSQL accessed through Prisma. The intended architecture is a modular monolith; see [docs/architecture.md](docs/architecture.md).
+The project is a pnpm monorepo with an Express API, a Next.js web application, shared validation contracts, and PostgreSQL accessed through Prisma. The application is a modular monolith; see [docs/architecture.md](docs/architecture.md).
 
 ## Technology choices
 
@@ -71,7 +71,7 @@ pnpm db:seed
 
 ### LOCAL DEVELOPMENT / DEMO CREDENTIALS
 
-The seed creates these future login identities:
+The seed creates these local login identities:
 
 - `admin@iza.com`
 - `recruiter@iza.com`
@@ -204,7 +204,9 @@ The health check is available at `GET http://localhost:4000/health`.
 pnpm dev:web
 ```
 
-The shell is available at `http://localhost:3000`.
+The application is available at `http://localhost:3000`. It provides sign-in, membership-based tenant selection, the protected shell, a server-paginated Candidate list with search and supported filters, and Add Candidate. Candidate detail/edit/removal and document, verification, and CV screens are not implemented.
+
+The frontend uses same-origin Next.js route handlers as its session boundary. The API JWT remains in an `HttpOnly` cookie and is not returned to browser JavaScript. Tenant selection is constrained to the authenticated actor's discovered memberships and revalidated through the backend context endpoint; client state is never treated as authorisation. Candidate creation uses a server-derived idempotency key, while the Express API remains authoritative for tenant scope, permissions, validation, and idempotent replay.
 
 ## Running worker
 
@@ -220,6 +222,7 @@ The worker uses the deterministic local verifier. It polls the transactional out
 
 ```bash
 pnpm format:check
+pnpm test:web
 pnpm lint
 pnpm typecheck
 pnpm test
@@ -293,5 +296,9 @@ AI was used for implementation acceleration, refactoring suggestions, test gener
 - The local verifier is deterministic and intentionally does not represent a production identity-check provider; production integration requires provider authentication, idempotency, timeout handling, and operational monitoring.
 - Outbox polling runs as a local Node.js worker without distributed scheduling or leader election.
 - CV extraction uses a deterministic local provider and text extraction only. It has no OCR, external model, prompt orchestration, malware scanning, or permanent file storage; production uploads require additional content-security controls and an explicitly governed provider integration.
-- No frontend business screens are present.
+- The frontend currently covers authentication, tenant selection, Candidate list/search/filter/pagination, and Candidate creation only. Candidate detail/edit/removal and document, verification, CV, and audit screens remain intentionally deferred.
+- Frontend component and server-boundary behaviour is covered by `pnpm test:web`, but browser E2E, rendered viewport checks, and manual assistive-technology verification remain outstanding. No `pnpm e2e:web` command exists yet.
+- Frontend sign-out clears the local same-origin cookies but does not revoke an issued backend JWT. Refresh tokens and session renewal are not implemented.
+- The frontend does not receive operation-level permission discovery, so the API remains solely authoritative when a role cannot perform an offered operation.
+- The current `HttpOnly`, `SameSite=Lax` cookie boundary and same-origin mutation checks are suitable for the local application. Production deployment requires deployment-specific session renewal/revocation, cookie-domain, TLS, CSRF, and rate-limit review.
 - Production deployment and observability are outside this foundation phase.

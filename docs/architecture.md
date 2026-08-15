@@ -4,13 +4,13 @@
 
 The repository is a pnpm workspace containing an Express API, a Next.js web application, a shared contracts package, and a root Prisma schema. PostgreSQL runs locally through Docker Compose.
 
-The planned application shape is a modular monolith. It keeps deployment and transactions simple while allowing domain boundaries to be established inside the API as requirements are implemented. A separate service architecture would add operational cost before the domain boundaries and scaling characteristics are known.
+The application is a modular monolith. It keeps deployment and transactions simple while preserving explicit domain boundaries inside the API. A separate service architecture would add operational cost before independent scaling or ownership requires it.
 
 ## Relational tenant foundation
 
 Users represent platform identities, while tenant memberships connect those identities to one or more tenants with a small tenant-specific role. Login and candidate email equality is case-insensitive at the PostgreSQL boundary, while candidate email uniqueness remains tenant-scoped.
 
-Every tenant-owned table stores `tenant_id` directly so later row-level security policies can operate without relying on joins. Compound foreign keys include `tenant_id` when linking candidates, logical compliance documents, document versions, superseded versions, current versions, and version creators. These constraints prevent cross-tenant relationships even before application-layer tenant validation and row-level security are implemented.
+Every tenant-owned table stores `tenant_id` directly so row-level security policies can operate without relying on joins. Compound foreign keys include `tenant_id` when linking candidates, logical compliance documents, document versions, superseded versions, current versions, and version creators. These constraints prevent cross-tenant relationships independently of application-layer tenant validation and row-level security.
 
 A compliance document is the logical record attached to a candidate. Its versions hold the dated review lifecycle, creator, and supersession history. The document's optional current-version reference is constrained to one of its own versions. Approved rows are retained as immutable history, while corrections create a superseding version and advance the logical document pointer. Candidate and logical-document `removed_at` timestamps provide one consistent retention-safe removal marker without modifying or cascading into their historical children.
 
@@ -44,11 +44,19 @@ HTTP request
 
 Routes must compose these middleware layers in this order. Each layer fails closed when its required trusted context is absent; route composition remains explicit so the required permission is visible beside each operation.
 
+## Frontend session and tenant boundary
+
+The Next.js App Router frontend places the backend JWT in a same-origin `HttpOnly`, `SameSite=Lax` cookie rather than browser storage. Browser session mutations pass through same-origin route handlers, and upstream errors are parsed as bounded Problem Details before reaching UI components. Local sign-out expires the frontend session and selected-tenant cookies; it does not revoke the already issued backend JWT, and refresh-token/session-renewal infrastructure is not implemented.
+
+Pre-selection membership discovery sends the authenticated actor token without `X-Tenant-Id`. A tenant can be selected only from the actor-scoped membership response, after which the Next.js server revalidates that choice through the backend context endpoint. The selected tenant cookie is an input to this validation, not an authorisation decision. Tenant-scoped server requests attach only the resulting validated context, while the Express permission policy and PostgreSQL RLS remain authoritative.
+
+The current business UI is deliberately limited to a server-paginated Candidate list and Candidate creation. Search, exact-email filtering, partial-role filtering, and page state map to the API rather than being recreated over an unbounded client-side dataset. Candidate creation uses a browser attempt nonce, but the same-origin server derives the raw backend idempotency key from authenticated session, actor, validated tenant, attempt, and canonical payload context. The browser cannot choose or observe that key. Candidate detail and document, verification, CV, and audit workflows remain deferred.
+
 ## Candidate module
 
 The Candidate API is the first tenant-owned business module. Each route applies authentication, validated tenant context, and its operation-specific permission before parsing Zod request contracts. The service then runs through `withTenantTransaction` and includes the validated `tenant_id` explicitly in every read or update predicate while PostgreSQL RLS independently enforces the same tenant boundary.
 
-Create input cannot select tenant ownership, and candidate responses omit `tenantId`. Lists use bounded page-based pagination with deterministic `created_at DESC, id ASC` ordering and candidate-specific search, email, and applied-role filters. Active-row filtering occurs in the database before counts and pagination. Candidate removal requires `candidate:remove`, row-locks the active tenant-owned Candidate, and changes only `removed_at`; its documents, versions, verification evidence, CV extractions, profile, and audit records remain stored. Every Candidate and descendant service entry point explicitly requires an active Candidate. Candidate creates, updates, removals, retrievals, and returned list records append audit events inside their tenant transaction. OpenAPI remains a separate later sub-phase.
+Create input cannot select tenant ownership, and candidate responses omit `tenantId`. Lists use bounded page-based pagination with deterministic `created_at DESC, id ASC` ordering and candidate-specific search, email, and applied-role filters. Active-row filtering occurs in the database before counts and pagination. Candidate removal requires `candidate:remove`, row-locks the active tenant-owned Candidate, and changes only `removed_at`; its documents, versions, verification evidence, CV extractions, profile, and audit records remain stored. Every Candidate and descendant service entry point explicitly requires an active Candidate. Candidate creates, updates, removals, retrievals, and returned list records append audit events inside their tenant transaction. The canonical OpenAPI 3.1 specification is validated and checked bidirectionally against registered routes.
 
 ## Compliance document module
 
@@ -108,6 +116,6 @@ Extraction, confirmation, and rejection require an active Candidate and use oper
 
 ## Evolution
 
-Future phases will introduce domain modules one at a time, with their API contracts, database migrations, security controls, tests, and documentation. The module boundaries are intended to make later extraction possible if independent scaling or ownership warrants it, without paying the cost of distributed transactions and messaging now.
+The backend domain modules and focused Candidate frontend now share explicit contracts while remaining inside the modular monolith. Remaining frontend workflows can be added against those boundaries without moving domain decisions into React. The module boundaries are intended to make later service extraction possible if independent scaling or ownership warrants it, without paying the cost of distributed transactions and messaging now.
 
 Production work would additionally require managed secrets, TLS termination, database backups and connection pooling, observability, deployment automation, rate limiting, dependency scanning, and an operational RLS migration strategy.

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 
 import { roleLabel } from '../lib/selection';
+import { PrimaryNavigation } from './primary-navigation';
 import { SignOutButton, TenantSwitcher } from './session-actions';
 
 interface AppShellProps {
@@ -14,13 +15,6 @@ interface AppShellProps {
   memberships: MembershipOption[];
   currentMembership: MembershipOption;
 }
-
-const futureNavigation = [
-  'Candidates',
-  'Documents',
-  'Verifications',
-  'CV review',
-];
 
 export function AppShell({
   children,
@@ -46,20 +40,7 @@ export function AppShell({
             </span>
           </Link>
 
-          <nav className="primary-nav" aria-label="Primary navigation">
-            <Link href="/" aria-current="page">
-              Overview
-            </Link>
-            {futureNavigation.map((item) => (
-              <span
-                key={item}
-                aria-disabled="true"
-                title="Planned for a later phase"
-              >
-                {item}
-              </span>
-            ))}
-          </nav>
+          <PrimaryNavigation />
 
           <div className="session-panel">
             <TenantSwitcher
