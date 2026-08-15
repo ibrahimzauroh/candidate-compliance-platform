@@ -38,6 +38,7 @@ describe('role permission policy', () => {
       PERMISSIONS.documentRead,
       PERMISSIONS.documentApprove,
       PERMISSIONS.documentCorrect,
+      PERMISSIONS.documentRemove,
       PERMISSIONS.verificationRequest,
       PERMISSIONS.verificationRead,
       PERMISSIONS.auditRead,

@@ -54,17 +54,57 @@ function toCvExtraction(extraction: CvExtractionRow): CvExtraction {
   });
 }
 
+async function requireActiveCvCandidateReplay(
+  transaction: Prisma.TransactionClient,
+  tenantContext: TenantContext,
+  extraction: CvExtraction,
+): Promise<void> {
+  const active = await transaction.candidate.count({
+    where: {
+      id: extraction.candidateId,
+      tenantId: tenantContext.tenantId,
+      removedAt: null,
+    },
+  });
+
+  if (active !== 1) {
+    throw candidateNotFoundProblem();
+  }
+}
+
+async function requireActiveCvExtractionReplay(
+  transaction: Prisma.TransactionClient,
+  tenantContext: TenantContext,
+  extraction: CvExtraction,
+): Promise<void> {
+  const active = await transaction.candidate.count({
+    where: {
+      id: extraction.candidateId,
+      tenantId: tenantContext.tenantId,
+      removedAt: null,
+    },
+  });
+
+  if (active !== 1) {
+    throw cvExtractionNotFoundProblem();
+  }
+}
+
 async function lockedExtraction(
   transaction: Prisma.TransactionClient,
   tenantContext: TenantContext,
   extractionId: string,
 ): Promise<CvExtractionRow> {
   const locked = await transaction.$queryRaw<Array<{ id: string }>>`
-    SELECT id
-    FROM public.cv_extractions
-    WHERE tenant_id = ${tenantContext.tenantId}::uuid
-      AND id = ${extractionId}::uuid
-    FOR UPDATE
+    SELECT extraction.id
+    FROM public.cv_extractions AS extraction
+    JOIN public.candidates AS candidate
+      ON candidate.tenant_id = extraction.tenant_id
+      AND candidate.id = extraction.candidate_id
+    WHERE extraction.tenant_id = ${tenantContext.tenantId}::uuid
+      AND extraction.id = ${extractionId}::uuid
+      AND candidate.removed_at IS NULL
+    FOR UPDATE OF extraction
   `;
 
   if (locked.length !== 1) {
@@ -72,7 +112,11 @@ async function lockedExtraction(
   }
 
   const extraction = await transaction.cvExtraction.findFirst({
-    where: { id: extractionId, tenantId: tenantContext.tenantId },
+    where: {
+      id: extractionId,
+      tenantId: tenantContext.tenantId,
+      candidate: { removedAt: null },
+    },
   });
 
   if (!extraction) {
@@ -102,9 +146,15 @@ export async function createCvExtraction(
     },
     responseStatus: 201,
     parseResponse: (value) => cvExtractionSchema.parse(value),
+    validateReplay: (transaction, extraction) =>
+      requireActiveCvCandidateReplay(transaction, tenantContext, extraction),
     execute: async (transaction) => {
       const candidate = await transaction.candidate.findFirst({
-        where: { id: candidateId, tenantId: tenantContext.tenantId },
+        where: {
+          id: candidateId,
+          tenantId: tenantContext.tenantId,
+          removedAt: null,
+        },
         select: { id: true },
       });
 
@@ -165,7 +215,11 @@ export async function getCvExtraction(
 ): Promise<CvExtraction> {
   return withTenantTransaction(prisma, tenantContext, async (transaction) => {
     const extraction = await transaction.cvExtraction.findFirst({
-      where: { id: extractionId, tenantId: tenantContext.tenantId },
+      where: {
+        id: extractionId,
+        tenantId: tenantContext.tenantId,
+        candidate: { removedAt: null },
+      },
     });
 
     if (!extraction) {
@@ -201,6 +255,8 @@ export async function confirmCvExtraction(
     fingerprintInput: { extractionId, input },
     responseStatus: 200,
     parseResponse: (value) => cvExtractionSchema.parse(value),
+    validateReplay: (transaction, extraction) =>
+      requireActiveCvExtractionReplay(transaction, tenantContext, extraction),
     execute: async (transaction) => {
       const extraction = await lockedExtraction(
         transaction,
@@ -285,6 +341,8 @@ export async function rejectCvExtraction(
     fingerprintInput: { extractionId },
     responseStatus: 200,
     parseResponse: (value) => cvExtractionSchema.parse(value),
+    validateReplay: (transaction, extraction) =>
+      requireActiveCvExtractionReplay(transaction, tenantContext, extraction),
     execute: async (transaction) => {
       const extraction = await lockedExtraction(
         transaction,

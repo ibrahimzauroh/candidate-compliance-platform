@@ -9,8 +9,10 @@ import {
   type CreateComplianceDocumentVersionRequest,
   type ExpiringComplianceDocumentListQuery,
   type ExpiringComplianceDocumentListResponse,
+  type NoContentResponse,
   type TenantContext,
 } from '@candidate-compliance/contracts';
+import { noContentResponseSchema } from '@candidate-compliance/contracts';
 import {
   ComplianceDocumentStatus,
   Prisma,
@@ -96,6 +98,25 @@ function isUniqueConstraintConflict(error: unknown): boolean {
   );
 }
 
+async function requireActiveDocumentReplay(
+  transaction: Prisma.TransactionClient,
+  tenantContext: TenantContext,
+  document: ComplianceDocumentDto,
+): Promise<void> {
+  const active = await transaction.complianceDocument.count({
+    where: {
+      id: document.id,
+      tenantId: tenantContext.tenantId,
+      removedAt: null,
+      candidate: { removedAt: null },
+    },
+  });
+
+  if (active !== 1) {
+    throw complianceDocumentNotFoundProblem();
+  }
+}
+
 async function requireCandidate(
   transaction: Prisma.TransactionClient,
   tenantContext: TenantContext,
@@ -105,6 +126,7 @@ async function requireCandidate(
     where: {
       id: candidateId,
       tenantId: tenantContext.tenantId,
+      removedAt: null,
     },
     select: { id: true },
   });
@@ -123,11 +145,16 @@ async function lockCurrentDocumentVersion(
   currentVersion: ComplianceDocumentVersion;
 }> {
   const locked = await transaction.$queryRaw<Array<{ id: string }>>`
-    SELECT id
-    FROM public.compliance_documents
-    WHERE tenant_id = ${tenantContext.tenantId}::uuid
-      AND id = ${documentId}::uuid
-    FOR UPDATE
+    SELECT document.id
+    FROM public.compliance_documents AS document
+    JOIN public.candidates AS candidate
+      ON candidate.tenant_id = document.tenant_id
+      AND candidate.id = document.candidate_id
+    WHERE document.tenant_id = ${tenantContext.tenantId}::uuid
+      AND document.id = ${documentId}::uuid
+      AND document.removed_at IS NULL
+      AND candidate.removed_at IS NULL
+    FOR UPDATE OF document
   `;
 
   if (locked.length !== 1) {
@@ -138,6 +165,8 @@ async function lockCurrentDocumentVersion(
     where: {
       id: documentId,
       tenantId: tenantContext.tenantId,
+      removedAt: null,
+      candidate: { removedAt: null },
     },
   });
 
@@ -184,6 +213,8 @@ export async function createComplianceDocument(
     },
     responseStatus: 201,
     parseResponse: (value) => complianceDocumentSchema.parse(value),
+    validateReplay: (transaction, document) =>
+      requireActiveDocumentReplay(transaction, tenantContext, document),
     execute: async (transaction) => {
       await requireCandidate(transaction, tenantContext, candidateId);
 
@@ -242,6 +273,7 @@ export async function listCandidateComplianceDocuments(
     const where: Prisma.ComplianceDocumentWhereInput = {
       tenantId: tenantContext.tenantId,
       candidateId,
+      removedAt: null,
       ...(query.type ? { type: query.type } : {}),
       ...(query.status
         ? {
@@ -299,6 +331,8 @@ export async function getComplianceDocument(
       where: {
         id: documentId,
         tenantId: tenantContext.tenantId,
+        removedAt: null,
+        candidate: { removedAt: null },
       },
       include: { currentVersion: true },
     });
@@ -340,6 +374,8 @@ export async function listExpiringComplianceDocuments(
     const { start, end } = utcExpiryWindow(now);
     const where: Prisma.ComplianceDocumentWhereInput = {
       tenantId: tenantContext.tenantId,
+      removedAt: null,
+      candidate: { removedAt: null },
       ...(query.type ? { type: query.type } : {}),
       currentVersion: {
         is: {
@@ -406,6 +442,8 @@ export async function addComplianceDocumentVersion(
       },
       responseStatus: 201,
       parseResponse: (value) => complianceDocumentSchema.parse(value),
+      validateReplay: (transaction, document) =>
+        requireActiveDocumentReplay(transaction, tenantContext, document),
       execute: async (transaction) => {
         const { document, currentVersion } = await lockCurrentDocumentVersion(
           transaction,
@@ -488,6 +526,8 @@ export async function approveComplianceDocument(
     fingerprintInput: { documentId },
     responseStatus: 200,
     parseResponse: (value) => complianceDocumentSchema.parse(value),
+    validateReplay: (transaction, document) =>
+      requireActiveDocumentReplay(transaction, tenantContext, document),
     execute: async (transaction) => {
       const { document, currentVersion } = await lockCurrentDocumentVersion(
         transaction,
@@ -548,6 +588,8 @@ export async function correctComplianceDocument(
       fingerprintInput: { documentId, input },
       responseStatus: 201,
       parseResponse: (value) => complianceDocumentSchema.parse(value),
+      validateReplay: (transaction, document) =>
+        requireActiveDocumentReplay(transaction, tenantContext, document),
       execute: async (transaction) => {
         const { document, currentVersion } = await lockCurrentDocumentVersion(
           transaction,
@@ -615,4 +657,53 @@ export async function correctComplianceDocument(
 
     throw error;
   }
+}
+
+export async function removeComplianceDocument(
+  prisma: PrismaClient,
+  tenantContext: TenantContext,
+  documentId: string,
+  idempotencyKey: string,
+): Promise<IdempotentWriteResult<NoContentResponse>> {
+  return executeIdempotentWrite({
+    prisma,
+    tenantContext,
+    key: idempotencyKey,
+    operation: IDEMPOTENCY_OPERATIONS.documentRemove,
+    fingerprintInput: { documentId },
+    responseStatus: 204,
+    parseResponse: (value) => noContentResponseSchema.parse(value),
+    execute: async (transaction) => {
+      const { document, currentVersion } = await lockCurrentDocumentVersion(
+        transaction,
+        tenantContext,
+        documentId,
+      );
+      const removedDocument = await transaction.complianceDocument.update({
+        where: {
+          tenantId_id: {
+            tenantId: tenantContext.tenantId,
+            id: documentId,
+          },
+        },
+        data: { removedAt: new Date() },
+      });
+
+      await appendAuditEvent(transaction, tenantContext, {
+        action: AUDIT_ACTIONS.documentRemove,
+        recordType: AUDIT_RECORD_TYPES.complianceDocument,
+        recordId: documentId,
+        before: {
+          ...toDocument(document, currentVersion),
+          removedAt: null,
+        },
+        after: {
+          ...toDocument(removedDocument, currentVersion),
+          removedAt: removedDocument.removedAt?.toISOString() ?? null,
+        },
+      });
+
+      return {};
+    },
+  });
 }

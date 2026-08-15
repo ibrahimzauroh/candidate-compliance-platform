@@ -436,7 +436,6 @@ describe('restricted runtime database role', () => {
       { table_name: 'candidate_profiles', privilege_type: 'SELECT' },
       { table_name: 'candidates', privilege_type: 'INSERT' },
       { table_name: 'candidates', privilege_type: 'SELECT' },
-      { table_name: 'candidates', privilege_type: 'UPDATE' },
       {
         table_name: 'compliance_document_versions',
         privilege_type: 'INSERT',
@@ -447,7 +446,6 @@ describe('restricted runtime database role', () => {
       },
       { table_name: 'compliance_documents', privilege_type: 'INSERT' },
       { table_name: 'compliance_documents', privilege_type: 'SELECT' },
-      { table_name: 'compliance_documents', privilege_type: 'UPDATE' },
       { table_name: 'cv_extractions', privilege_type: 'INSERT' },
       { table_name: 'cv_extractions', privilege_type: 'SELECT' },
       { table_name: 'idempotency_records', privilege_type: 'INSERT' },
@@ -474,6 +472,29 @@ describe('restricted runtime database role', () => {
 
     expect(versionUpdateColumns).toEqual([
       { column_name: 'status', privilege_type: 'UPDATE' },
+    ]);
+
+    const aggregateUpdateColumns = await adminPrisma.$queryRaw<
+      Array<{ table_name: string; column_name: string }>
+    >`
+      SELECT table_name, column_name
+      FROM information_schema.role_column_grants
+      WHERE grantee = 'candidate_compliance_app'
+        AND table_schema = 'public'
+        AND table_name IN ('candidates', 'compliance_documents')
+        AND privilege_type = 'UPDATE'
+      ORDER BY table_name, column_name
+    `;
+
+    expect(aggregateUpdateColumns).toEqual([
+      { table_name: 'candidates', column_name: 'email' },
+      { table_name: 'candidates', column_name: 'full_name' },
+      { table_name: 'candidates', column_name: 'removed_at' },
+      { table_name: 'candidates', column_name: 'role_applied_for' },
+      { table_name: 'candidates', column_name: 'updated_at' },
+      { table_name: 'compliance_documents', column_name: 'current_version_id' },
+      { table_name: 'compliance_documents', column_name: 'removed_at' },
+      { table_name: 'compliance_documents', column_name: 'updated_at' },
     ]);
 
     const workflowUpdateColumns = await adminPrisma.$queryRaw<

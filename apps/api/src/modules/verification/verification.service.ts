@@ -60,6 +60,25 @@ function isUniqueConstraintConflict(error: unknown): boolean {
   );
 }
 
+async function requireActiveVerificationDocumentReplay(
+  transaction: Prisma.TransactionClient,
+  tenantContext: TenantContext,
+  request: VerificationRequestDto,
+): Promise<void> {
+  const active = await transaction.complianceDocument.count({
+    where: {
+      id: request.documentId,
+      tenantId: tenantContext.tenantId,
+      removedAt: null,
+      candidate: { removedAt: null },
+    },
+  });
+
+  if (active !== 1) {
+    throw complianceDocumentNotFoundProblem();
+  }
+}
+
 export async function requestRightToWorkVerification(
   prisma: PrismaClient,
   tenantContext: TenantContext,
@@ -75,13 +94,24 @@ export async function requestRightToWorkVerification(
       fingerprintInput: { documentId },
       responseStatus: 202,
       parseResponse: (value) => verificationRequestSchema.parse(value),
+      validateReplay: (transaction, verificationRequest) =>
+        requireActiveVerificationDocumentReplay(
+          transaction,
+          tenantContext,
+          verificationRequest,
+        ),
       execute: async (transaction) => {
         const locked = await transaction.$queryRaw<Array<{ id: string }>>`
-          SELECT id
-          FROM public.compliance_documents
-          WHERE tenant_id = ${tenantContext.tenantId}::uuid
-            AND id = ${documentId}::uuid
-          FOR UPDATE
+          SELECT document.id
+          FROM public.compliance_documents AS document
+          JOIN public.candidates AS candidate
+            ON candidate.tenant_id = document.tenant_id
+            AND candidate.id = document.candidate_id
+          WHERE document.tenant_id = ${tenantContext.tenantId}::uuid
+            AND document.id = ${documentId}::uuid
+            AND document.removed_at IS NULL
+            AND candidate.removed_at IS NULL
+          FOR UPDATE OF document
         `;
 
         if (locked.length !== 1) {
@@ -92,6 +122,8 @@ export async function requestRightToWorkVerification(
           where: {
             id: documentId,
             tenantId: tenantContext.tenantId,
+            removedAt: null,
+            candidate: { removedAt: null },
           },
           include: { currentVersion: true },
         });
@@ -155,6 +187,10 @@ export async function getVerificationRequest(
         where: {
           id: verificationRequestId,
           tenantId: tenantContext.tenantId,
+          document: {
+            removedAt: null,
+            candidate: { removedAt: null },
+          },
         },
       },
     );

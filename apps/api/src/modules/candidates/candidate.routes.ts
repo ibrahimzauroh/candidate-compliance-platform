@@ -4,6 +4,7 @@ import {
   candidateListResponseSchema,
   candidateSchema,
   createCandidateRequestSchema,
+  noContentResponseSchema,
   updateCandidateRequestSchema,
   type TenantContext,
 } from '@candidate-compliance/contracts';
@@ -21,6 +22,7 @@ import {
   createCandidate,
   getCandidate,
   listCandidates,
+  removeCandidate,
   updateCandidate,
 } from './candidate.service.js';
 
@@ -115,6 +117,28 @@ export function createCandidateRouter(
       );
 
       response.status(result.status).json(candidateSchema.parse(result.body));
+    },
+  );
+
+  router.delete(
+    '/:candidateId',
+    authenticate,
+    requireTenantContext,
+    requirePermission(PERMISSIONS.candidateRemove),
+    async (request, response) => {
+      const { candidateId } = candidateIdParamsSchema.parse(request.params);
+      const idempotencyKey = parseIdempotencyKey(
+        request.header('idempotency-key'),
+      );
+      const result = await removeCandidate(
+        prisma,
+        tenantContextFrom(request),
+        candidateId,
+        idempotencyKey,
+      );
+
+      noContentResponseSchema.parse(result.body);
+      response.status(result.status).send();
     },
   );
 

@@ -15,10 +15,12 @@ import {
 export const IDEMPOTENCY_OPERATIONS = {
   candidateCreate: 'candidate:create',
   candidateUpdate: 'candidate:update',
+  candidateRemove: 'candidate:remove',
   documentCreate: 'document:create',
   documentVersionCreate: 'document:version:create',
   documentApprove: 'document:approve',
   documentCorrect: 'document:correct',
+  documentRemove: 'document:remove',
   verificationRequest: 'verification:request',
   aiExtract: 'ai:extract',
   aiConfirm: 'ai:confirm',
@@ -42,6 +44,10 @@ interface IdempotentWriteOptions<T> {
   fingerprintInput: unknown;
   responseStatus: number;
   parseResponse: (value: unknown) => T;
+  validateReplay?: (
+    transaction: Prisma.TransactionClient,
+    body: T,
+  ) => Promise<void>;
   execute: (transaction: Prisma.TransactionClient) => Promise<T>;
 }
 
@@ -65,18 +71,26 @@ export function parseIdempotencyKey(value: string | undefined): string {
   return parsed.data;
 }
 
-function storedResponse<T>(
+async function storedResponse<T>(
+  transaction: Prisma.TransactionClient,
   record: StoredResult,
   expectedHash: string,
   parseResponse: (value: unknown) => T,
-): IdempotentWriteResult<T> {
+  validateReplay?: (
+    transaction: Prisma.TransactionClient,
+    body: T,
+  ) => Promise<void>,
+): Promise<IdempotentWriteResult<T>> {
   if (record.requestHash !== expectedHash) {
     throw idempotencyKeyConflictProblem();
   }
 
+  const body = parseResponse(record.responseBody);
+  await validateReplay?.(transaction, body);
+
   return {
     status: record.responseStatus,
-    body: parseResponse(record.responseBody),
+    body,
     replayed: true,
   };
 }
@@ -114,6 +128,7 @@ export async function executeIdempotentWrite<T>({
   fingerprintInput,
   responseStatus,
   parseResponse,
+  validateReplay,
   execute,
 }: IdempotentWriteOptions<T>): Promise<IdempotentWriteResult<T>> {
   const expectedHash = canonicalHash(fingerprintInput);
@@ -131,7 +146,13 @@ export async function executeIdempotentWrite<T>({
         );
 
         if (existing) {
-          return storedResponse(existing, expectedHash, parseResponse);
+          return storedResponse(
+            transaction,
+            existing,
+            expectedHash,
+            parseResponse,
+            validateReplay,
+          );
         }
 
         const body = parseResponse(await execute(transaction));
@@ -151,21 +172,31 @@ export async function executeIdempotentWrite<T>({
       },
     );
   } catch (error) {
-    let existing: StoredResult | null = null;
+    const replay = await withTenantTransaction(
+      prisma,
+      tenantContext,
+      async (transaction) => {
+        const existing = await findStoredResult(
+          transaction,
+          tenantContext,
+          operation,
+          key,
+        );
 
-    try {
-      existing = await withTenantTransaction(
-        prisma,
-        tenantContext,
-        (transaction) =>
-          findStoredResult(transaction, tenantContext, operation, key),
-      );
-    } catch {
-      throw error;
-    }
+        return existing
+          ? storedResponse(
+              transaction,
+              existing,
+              expectedHash,
+              parseResponse,
+              validateReplay,
+            )
+          : null;
+      },
+    );
 
-    if (existing) {
-      return storedResponse(existing, expectedHash, parseResponse);
+    if (replay) {
+      return replay;
     }
 
     throw error;

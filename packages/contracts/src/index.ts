@@ -126,6 +126,10 @@ export const candidateListResponseSchema = z.strictObject({
 
 export type CandidateListResponse = z.infer<typeof candidateListResponseSchema>;
 
+export const noContentResponseSchema = z.strictObject({});
+
+export type NoContentResponse = z.infer<typeof noContentResponseSchema>;
+
 export const complianceDocumentTypeSchema = z.enum([
   'RIGHT_TO_WORK',
   'BACKGROUND_CHECK',

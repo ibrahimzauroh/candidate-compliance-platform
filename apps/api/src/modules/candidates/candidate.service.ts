@@ -3,10 +3,12 @@ import type {
   CandidateListQuery,
   CandidateListResponse,
   CreateCandidateRequest,
+  NoContentResponse,
   TenantContext,
   UpdateCandidateRequest,
 } from '@candidate-compliance/contracts';
 import { candidateSchema } from '@candidate-compliance/contracts';
+import { noContentResponseSchema } from '@candidate-compliance/contracts';
 import { Prisma, type PrismaClient } from '@prisma/client';
 
 import { withTenantTransaction } from '../../infrastructure/database/with-tenant-transaction.js';
@@ -51,12 +53,31 @@ function isUniqueConstraintConflict(error: unknown): boolean {
   );
 }
 
+async function requireActiveCandidateReplay(
+  transaction: Prisma.TransactionClient,
+  tenantContext: TenantContext,
+  candidate: Candidate,
+): Promise<void> {
+  const active = await transaction.candidate.count({
+    where: {
+      id: candidate.id,
+      tenantId: tenantContext.tenantId,
+      removedAt: null,
+    },
+  });
+
+  if (active !== 1) {
+    throw candidateNotFoundProblem();
+  }
+}
+
 function candidateWhere(
   tenantContext: TenantContext,
   query: CandidateListQuery,
 ): Prisma.CandidateWhereInput {
   return {
     tenantId: tenantContext.tenantId,
+    removedAt: null,
     ...(query.email ? { email: query.email } : {}),
     ...(query.roleAppliedFor
       ? {
@@ -98,6 +119,8 @@ export async function createCandidate(
       fingerprintInput: { input },
       responseStatus: 201,
       parseResponse: (value) => candidateSchema.parse(value),
+      validateReplay: (transaction, candidate) =>
+        requireActiveCandidateReplay(transaction, tenantContext, candidate),
       execute: async (transaction) => {
         const candidate = await transaction.candidate.create({
           data: {
@@ -178,6 +201,7 @@ export async function getCandidate(
       where: {
         id: candidateId,
         tenantId: tenantContext.tenantId,
+        removedAt: null,
       },
     });
 
@@ -214,11 +238,14 @@ export async function updateCandidate(
       fingerprintInput: { candidateId, input },
       responseStatus: 200,
       parseResponse: (value) => candidateSchema.parse(value),
+      validateReplay: (transaction, candidate) =>
+        requireActiveCandidateReplay(transaction, tenantContext, candidate),
       execute: async (transaction) => {
         const beforeCandidate = await transaction.candidate.findFirst({
           where: {
             id: candidateId,
             tenantId: tenantContext.tenantId,
+            removedAt: null,
           },
         });
 
@@ -242,6 +269,7 @@ export async function updateCandidate(
           where: {
             id: candidateId,
             tenantId: tenantContext.tenantId,
+            removedAt: null,
           },
           data,
         });
@@ -254,6 +282,7 @@ export async function updateCandidate(
           where: {
             id: candidateId,
             tenantId: tenantContext.tenantId,
+            removedAt: null,
           },
         });
 
@@ -281,4 +310,73 @@ export async function updateCandidate(
 
     throw error;
   }
+}
+
+export async function removeCandidate(
+  prisma: PrismaClient,
+  tenantContext: TenantContext,
+  candidateId: string,
+  idempotencyKey: string,
+): Promise<IdempotentWriteResult<NoContentResponse>> {
+  return executeIdempotentWrite({
+    prisma,
+    tenantContext,
+    key: idempotencyKey,
+    operation: IDEMPOTENCY_OPERATIONS.candidateRemove,
+    fingerprintInput: { candidateId },
+    responseStatus: 204,
+    parseResponse: (value) => noContentResponseSchema.parse(value),
+    execute: async (transaction) => {
+      const locked = await transaction.$queryRaw<Array<{ id: string }>>`
+        SELECT id
+        FROM public.candidates
+        WHERE tenant_id = ${tenantContext.tenantId}::uuid
+          AND id = ${candidateId}::uuid
+          AND removed_at IS NULL
+        FOR UPDATE
+      `;
+
+      if (locked.length !== 1) {
+        throw candidateNotFoundProblem();
+      }
+
+      const candidate = await transaction.candidate.findFirst({
+        where: {
+          id: candidateId,
+          tenantId: tenantContext.tenantId,
+          removedAt: null,
+        },
+      });
+
+      if (!candidate) {
+        throw candidateNotFoundProblem();
+      }
+
+      const removedCandidate = await transaction.candidate.update({
+        where: {
+          tenantId_id: {
+            tenantId: tenantContext.tenantId,
+            id: candidateId,
+          },
+        },
+        data: { removedAt: new Date() },
+      });
+
+      await appendAuditEvent(transaction, tenantContext, {
+        action: AUDIT_ACTIONS.candidateRemove,
+        recordType: AUDIT_RECORD_TYPES.candidate,
+        recordId: candidateId,
+        before: {
+          ...toCandidate(candidate),
+          removedAt: null,
+        },
+        after: {
+          ...toCandidate(removedCandidate),
+          removedAt: removedCandidate.removedAt?.toISOString() ?? null,
+        },
+      });
+
+      return {};
+    },
+  });
 }
