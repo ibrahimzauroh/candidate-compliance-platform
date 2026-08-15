@@ -217,6 +217,38 @@ pnpm test
 pnpm build
 ```
 
+### Backend end-to-end smoke test
+
+After configuring the disposable local PostgreSQL database and applying the
+committed migrations, run the primary backend HTTP journey with one command:
+
+```powershell
+$env:E2E_ALLOW_DATABASE_MUTATION = 'true'
+
+try {
+  corepack pnpm e2e:smoke
+
+  if ($LASTEXITCODE -ne 0) {
+    throw "E2E smoke test failed with exit code $LASTEXITCODE"
+  }
+}
+finally {
+  Remove-Item Env:E2E_ALLOW_DATABASE_MUTATION -ErrorAction SilentlyContinue
+}
+```
+
+The command refuses non-local or production-like database targets, prints only
+the redacted host and database name, starts the real Express application on an
+ephemeral loopback port, invokes the real verification processor, and cleans up
+its listener and database clients after success or failure. It uses unique data
+for each run; Candidate, document, workflow, CV, and audit rows are intentionally
+retained after logical removal. See [docs/manual-testing.md](docs/manual-testing.md)
+for the authoritative cross-platform prerequisites, coverage, and safety
+details.
+
+This is a backend smoke test, not a substitute for `pnpm test`. Frontend browser
+acceptance remains a separate activity.
+
 ## OpenAPI
 
 The canonical OpenAPI 3.1 specification is [docs/openapi.json](docs/openapi.json). It documents the unversioned health check and every registered versioned authentication, tenant-context, Candidate, ComplianceDocument, verification, and governed CV extraction operation.
