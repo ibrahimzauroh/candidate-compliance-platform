@@ -16,6 +16,7 @@ import {
   type DocumentListError,
 } from '../../../../components/compliance-document-list';
 import { DocumentPagination } from '../../../../components/document-pagination';
+import { CvUploadPanel } from '../../../../components/cv-upload-panel';
 import {
   documentApiSearch,
   documentPageHref,
@@ -145,6 +146,8 @@ export default async function CandidateDetailPage({
   return (
     <article className="candidate-detail-page">
       <CandidateDetail candidate={candidate} />
+
+      <CvUploadPanel candidateId={candidate.id} />
 
       {rawSearchParams.documentCreated === '1' ? (
         <AlertBanner title="Compliance document created" tone="success">

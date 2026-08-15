@@ -17,6 +17,8 @@ interface ApiRequestOptions<T> {
   tenantId?: string;
   idempotencyKey?: string;
   body?: unknown;
+  rawBody?: BodyInit;
+  contentType?: string;
 }
 
 const DEFAULT_API_ORIGIN = 'http://localhost:4000';
@@ -105,6 +107,8 @@ export async function requestApi<T>({
   tenantId,
   idempotencyKey,
   body,
+  rawBody,
+  contentType,
 }: ApiRequestOptions<T>): Promise<T> {
   const headers = new Headers({ Accept: 'application/json' });
 
@@ -120,8 +124,14 @@ export async function requestApi<T>({
     headers.set('Idempotency-Key', idempotencyKey);
   }
 
-  if (body !== undefined) {
-    headers.set('Content-Type', 'application/json');
+  if (rawBody !== undefined && body !== undefined) {
+    throw new ApiRequestError(502, fallbackProblem());
+  }
+
+  if (rawBody !== undefined) {
+    headers.set('Content-Type', contentType ?? 'application/octet-stream');
+  } else if (body !== undefined) {
+    headers.set('Content-Type', contentType ?? 'application/json');
   }
 
   let response: Response;
@@ -130,7 +140,12 @@ export async function requestApi<T>({
     response = await fetch(`${safeApiOrigin()}${path}`, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body:
+        rawBody !== undefined
+          ? rawBody
+          : body === undefined
+            ? undefined
+            : JSON.stringify(body),
       cache: 'no-store',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });

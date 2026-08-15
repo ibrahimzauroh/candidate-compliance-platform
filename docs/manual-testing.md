@@ -180,3 +180,21 @@ These controls use the validated server tenant context and server-derived
 idempotency keys. They do not make client state authoritative. Rendered browser,
 320px viewport, and assistive-technology checks remain manual because no
 `pnpm e2e:web` command exists yet.
+
+## Frontend governed CV check
+
+With the same local prerequisites, open a Candidate and upload a non-empty UTF-8
+text or PDF CV no larger than 2 MiB. The browser should show an in-flight
+extraction state and then open a `PROPOSED` review whose AI values are explicitly
+labelled non-authoritative. Reviewers can edit the separate confirmed name,
+skills, years-of-experience, and certification fields before an explicit
+confirmation. The resulting `ACCEPTED` profile is read-only and comes from the
+backend response; the original proposal remains visible separately.
+
+Alternatively, use the distinct proposal-rejection confirmation. The resulting
+`REJECTED` state must say that only the advisory proposal was rejected and that
+the Candidate was not rejected, scored, ranked, removed, or otherwise changed.
+CV upload and both decision paths use validated server tenant context and
+server-derived idempotency keys. Raw CV content is not logged or retained by the
+application. Rendered browser, 320px viewport, and assistive-technology checks
+remain manual because no `pnpm e2e:web` command exists yet.
