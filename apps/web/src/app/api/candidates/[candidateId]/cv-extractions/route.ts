@@ -113,8 +113,10 @@ export async function POST(
     clearSessionCookies(response);
     return response;
   }
-
-  const params = candidateIdParamsSchema.safeParse(await context.params);
+  const rawParams = await context.params;
+  const params = candidateIdParamsSchema.safeParse({
+    candidateId: rawParams.candidateId,
+  });
   const attemptId = request.headers.get('x-cv-attempt-id');
   const mediaType = mediaTypeFrom(request);
 

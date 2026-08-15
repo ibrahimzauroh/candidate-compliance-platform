@@ -73,8 +73,11 @@ export async function POST(
     clearSessionCookies(response);
     return response;
   }
+  const rawParams = await context.params;
 
-  const params = documentIdParamsSchema.safeParse(await context.params);
+  const params = documentIdParamsSchema.safeParse({
+    documentId: rawParams.documentId,
+  });
 
   if (!params.success) {
     return jsonProblem(invalidFrontendRequestProblem);

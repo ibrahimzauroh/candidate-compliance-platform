@@ -23,10 +23,15 @@ interface CvProposalPageProps {
 }
 
 export default async function CvProposalPage({ params }: CvProposalPageProps) {
-  const rawParams = await params;
-  const candidateParams = candidateIdParamsSchema.safeParse(rawParams);
-  const extractionParams = cvExtractionIdParamsSchema.safeParse(rawParams);
+const rawParams = await params;
 
+const candidateParams = candidateIdParamsSchema.safeParse({
+  candidateId: rawParams.candidateId,
+});
+
+const extractionParams = cvExtractionIdParamsSchema.safeParse({
+  extractionId: rawParams.extractionId,
+});
   if (!candidateParams.success || !extractionParams.success) {
     notFound();
   }

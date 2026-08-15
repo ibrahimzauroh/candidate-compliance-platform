@@ -72,8 +72,10 @@ export async function POST(
     clearSessionCookies(response);
     return response;
   }
-
-  const params = candidateIdParamsSchema.safeParse(await context.params);
+  const rawParams = await context.params;
+  const params = candidateIdParamsSchema.safeParse({
+    candidateId: rawParams.candidateId,
+  });
 
   if (!params.success) {
     return jsonProblem(invalidFrontendRequestProblem);

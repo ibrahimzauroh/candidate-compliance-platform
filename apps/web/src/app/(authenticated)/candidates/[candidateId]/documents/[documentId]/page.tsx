@@ -27,9 +27,15 @@ interface DocumentDetailPageProps {
 export default async function DocumentDetailPage({
   params,
 }: DocumentDetailPageProps) {
-  const rawParams = await params;
-  const candidateParams = candidateIdParamsSchema.safeParse(rawParams);
-  const documentParams = documentIdParamsSchema.safeParse(rawParams);
+const rawParams = await params;
+
+const candidateParams = candidateIdParamsSchema.safeParse({
+  candidateId: rawParams.candidateId,
+});
+
+const documentParams = documentIdParamsSchema.safeParse({
+  documentId: rawParams.documentId,
+});
 
   if (!candidateParams.success || !documentParams.success) {
     notFound();

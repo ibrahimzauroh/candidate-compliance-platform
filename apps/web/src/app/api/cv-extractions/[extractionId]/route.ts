@@ -33,8 +33,11 @@ export async function GET(
     clearSessionCookies(response);
     return response;
   }
+  const rawParams = await context.params;
 
-  const params = cvExtractionIdParamsSchema.safeParse(await context.params);
+  const params = cvExtractionIdParamsSchema.safeParse({
+    extractionId: rawParams.extractionId,
+  });
 
   if (!params.success) {
     return jsonProblem(invalidFrontendRequestProblem);

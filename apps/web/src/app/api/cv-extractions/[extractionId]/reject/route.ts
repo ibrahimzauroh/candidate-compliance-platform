@@ -59,8 +59,10 @@ export async function POST(
     clearSessionCookies(response);
     return response;
   }
-
-  const params = cvExtractionIdParamsSchema.safeParse(await context.params);
+  const rawParams = await context.params;
+  const params = cvExtractionIdParamsSchema.safeParse({
+    extractionId: rawParams.extractionId,
+  });
   let body: unknown;
 
   try {

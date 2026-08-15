@@ -23,7 +23,11 @@ interface AddDocumentPageProps {
 export default async function AddDocumentPage({
   params,
 }: AddDocumentPageProps) {
-  const parsedParams = candidateIdParamsSchema.safeParse(await params);
+  const rawParams = await params;
+
+  const parsedParams = candidateIdParamsSchema.safeParse({
+    candidateId: rawParams.candidateId,
+  });
 
   if (!parsedParams.success) {
     notFound();

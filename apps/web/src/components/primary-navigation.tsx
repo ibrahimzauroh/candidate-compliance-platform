@@ -31,11 +31,12 @@ export function PrimaryNavigation() {
           </Link>
         );
       })}
-      {futureNavigation.map((item) => (
+      {/* hiding these for now, to avoid confusion */}
+      {/* {futureNavigation.map((item) => (
         <span key={item} aria-disabled="true" title="Planned for a later phase">
           {item}
         </span>
-      ))}
+      ))} */}
     </nav>
   );
 }

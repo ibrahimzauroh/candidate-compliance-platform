@@ -43,7 +43,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
       <section className="auth-introduction" aria-labelledby="sign-in-title">
         <div>
           <p className="eyebrow">Secure operations workspace</p>
-          <h1 id="sign-in-title">Candidate compliance, with context.</h1>
+          <h1 id="sign-in-title">Candidate compliance platform</h1>
           <p className="auth-introduction__lead">
             Sign in first. Tenant access is discovered from your authenticated
             account before any workspace is selected.
@@ -67,10 +67,6 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
           </div>
         </div>
         <SignInForm initialMessage={reasonMessage(reason)} />
-        <p className="security-note">
-          Your access token is held in a secure, HTTP-only session cookie and is
-          never exposed to application JavaScript.
-        </p>
       </section>
     </main>
   );
