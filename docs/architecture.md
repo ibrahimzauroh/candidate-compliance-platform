@@ -4,13 +4,13 @@
 
 The repository is a pnpm workspace containing an Express API, a Next.js web application, a shared contracts package, and a root Prisma schema. PostgreSQL runs locally through Docker Compose.
 
-The planned application shape is a modular monolith. It keeps deployment and transactions simple while allowing domain boundaries to be established inside the API as requirements are implemented. A separate service architecture would add operational cost before the domain boundaries and scaling characteristics are known.
+The application is a modular monolith. It keeps deployment and transactions simple while preserving explicit domain boundaries inside the API. A separate service architecture would add operational cost before independent scaling or ownership requires it.
 
 ## Relational tenant foundation
 
 Users represent platform identities, while tenant memberships connect those identities to one or more tenants with a small tenant-specific role. Login and candidate email equality is case-insensitive at the PostgreSQL boundary, while candidate email uniqueness remains tenant-scoped.
 
-Every tenant-owned table stores `tenant_id` directly so later row-level security policies can operate without relying on joins. Compound foreign keys include `tenant_id` when linking candidates, logical compliance documents, document versions, superseded versions, current versions, and version creators. These constraints prevent cross-tenant relationships even before application-layer tenant validation and row-level security are implemented.
+Every tenant-owned table stores `tenant_id` directly so row-level security policies can operate without relying on joins. Compound foreign keys include `tenant_id` when linking candidates, logical compliance documents, document versions, superseded versions, current versions, and version creators. These constraints prevent cross-tenant relationships independently of application-layer tenant validation and row-level security.
 
 A compliance document is the logical record attached to a candidate. Its versions hold the dated review lifecycle, creator, and supersession history. The document's optional current-version reference is constrained to one of its own versions. Approved rows are retained as immutable history, while corrections create a superseding version and advance the logical document pointer. Candidate and logical-document `removed_at` timestamps provide one consistent retention-safe removal marker without modifying or cascading into their historical children.
 
@@ -44,11 +44,19 @@ HTTP request
 
 Routes must compose these middleware layers in this order. Each layer fails closed when its required trusted context is absent; route composition remains explicit so the required permission is visible beside each operation.
 
+## Frontend session and tenant boundary
+
+The Next.js App Router frontend places the backend JWT in a same-origin `HttpOnly`, `SameSite=Lax` cookie rather than browser storage. Browser session mutations pass through same-origin route handlers, and upstream errors are parsed as bounded Problem Details before reaching UI components. Local sign-out expires the frontend session and selected-tenant cookies; it does not revoke the already issued backend JWT, and refresh-token/session-renewal infrastructure is not implemented.
+
+Pre-selection membership discovery sends the authenticated actor token without `X-Tenant-Id`. A tenant can be selected only from the actor-scoped membership response, after which the Next.js server revalidates that choice through the backend context endpoint. The selected tenant cookie is an input to this validation, not an authorisation decision. Tenant-scoped server requests attach only the resulting validated context, while the Express permission policy and PostgreSQL RLS remain authoritative.
+
+The current business UI provides a server-paginated Candidate list, Candidate creation/detail, compliance-document list/create/read, immutable version history, approval and correction, and governed CV proposal review. Search, exact-email filtering, partial-role filtering, and Candidate/document page state map to the API rather than being recreated over unbounded client-side datasets. Browser mutations use logical attempt nonces, but the same-origin server derives each raw backend idempotency key from authenticated session, actor, validated tenant, target aggregate, operation, attempt, and canonical payload or content-hash context. The browser cannot choose or observe those keys. Document creation follows the metadata-only JSON contract and begins at `DRAFT`; approval consumes authoritative state without optimistic mutation, while correction creates a new `DRAFT` and leaves the approved version read-only. CV upload forwards only the bounded raw text or PDF body through the validated tenant boundary; the proposal remains separately visible and non-authoritative until explicit recruiter confirmation, while rejection changes only proposal state. Verification and audit UI workflows remain deferred.
+
 ## Candidate module
 
 The Candidate API is the first tenant-owned business module. Each route applies authentication, validated tenant context, and its operation-specific permission before parsing Zod request contracts. The service then runs through `withTenantTransaction` and includes the validated `tenant_id` explicitly in every read or update predicate while PostgreSQL RLS independently enforces the same tenant boundary.
 
-Create input cannot select tenant ownership, and candidate responses omit `tenantId`. Lists use bounded page-based pagination with deterministic `created_at DESC, id ASC` ordering and candidate-specific search, email, and applied-role filters. Active-row filtering occurs in the database before counts and pagination. Candidate removal requires `candidate:remove`, row-locks the active tenant-owned Candidate, and changes only `removed_at`; its documents, versions, verification evidence, CV extractions, profile, and audit records remain stored. Every Candidate and descendant service entry point explicitly requires an active Candidate. Candidate creates, updates, removals, retrievals, and returned list records append audit events inside their tenant transaction. OpenAPI remains a separate later sub-phase.
+Create input cannot select tenant ownership, and candidate responses omit `tenantId`. Lists use bounded page-based pagination with deterministic `created_at DESC, id ASC` ordering and candidate-specific search, email, and applied-role filters. Active-row filtering occurs in the database before counts and pagination. Candidate removal requires `candidate:remove`, row-locks the active tenant-owned Candidate, and changes only `removed_at`; its documents, versions, verification evidence, CV extractions, profile, and audit records remain stored. Every Candidate and descendant service entry point explicitly requires an active Candidate. Candidate creates, updates, removals, retrievals, and returned list records append audit events inside their tenant transaction. The canonical OpenAPI 3.1 specification is validated and checked bidirectionally against registered routes.
 
 ## Compliance document module
 
@@ -57,6 +65,8 @@ A `ComplianceDocument` is the stable logical record attached to a candidate; `Co
 Tenant ownership, candidate identity, version numbers, status transitions, and creator provenance are server-controlled. `createdBy` stores the validated `TenantContext.membershipId`; a migration converts the original seeded user identifiers and constrains the field to a membership in the same tenant. Approval requires `document:approve` and moves only a current DRAFT or PENDING_REVIEW version to APPROVED. Reapproving the same current version is a semantic no-op, while invalid transitions return `409 Conflict`.
 
 Correction requires `document:correct` and an approved current version. It inserts a new DRAFT with the next version number, records the approved version in `supersedesVersionId`, and advances the current pointer in the same tenant transaction. A row lock on the logical document serialises competing pointer transitions. The prior approved row and its values remain unchanged.
+
+The public version-history read resolves only an active tenant-owned document, then returns its persisted versions in ascending version-number order from the same tenant transaction. Each public item reuses the bounded version DTO and adds `isCurrent`; tenant ownership, creator membership, and supersession identifiers remain internal. The complete per-document list is intentionally unpaginated for the current bounded history model. The read reuses `document:read` audit evidence for the disclosed logical document, while neutral `404` handling prevents cross-tenant or inactive-document inference.
 
 The runtime role retains `INSERT` on versions but receives column-level `UPDATE` only for `status`. Candidate updates are limited to active fields, `removed_at`, and `updated_at`; logical-document updates are limited to the current-version pointer, `removed_at`, and `updated_at`. Removal triggers reject runtime changes after an aggregate is inactive, including restoration, while physical `DELETE` remains unavailable. The version trigger permits only unchanged status or DRAFT/PENDING_REVIEW to APPROVED for that role and rejects every modification to an already approved row. Application transition checks provide precise public errors; restricted privileges and the triggers independently protect history against an accidental application update. Schema-owner maintenance remains privileged and migrations are forward-only.
 
@@ -104,10 +114,72 @@ The extraction row is the AI evidence record: it retains purpose, provider/model
 
 Extraction, confirmation, and rejection require an active Candidate and use operation-specific idempotency scopes. The upload fingerprint contains only candidate ID, media type, and a SHA-256 content hash; raw content is not retained. Identical replays do not duplicate proposals, profiles, or audit events, while different input under the same scoped key returns `409 Conflict`. An old successful key cannot replay a proposal or decision after Candidate removal. Proposal reads and all state transitions are audited with canonical hashes. Audit metadata is limited to purpose/provider/model or the decision and never contains raw CV text, prompts, or provider errors.
 
-`cv_extractions` and `candidate_profiles` carry `tenant_id`, tenant-aware candidate and membership constraints, forced RLS, and explicit tenant policies. The runtime role receives only select/insert plus the decision and profile columns required by the service; delete access is withheld. The current implementation deliberately has no external LLM, API key, OCR, permanent raw-file storage, scoring/ranking, automated decision, or frontend workflow.
+`cv_extractions` and `candidate_profiles` carry `tenant_id`, tenant-aware candidate and membership constraints, forced RLS, and explicit tenant policies. The runtime role receives only select/insert plus the decision and profile columns required by the service; delete access is withheld. The current implementation deliberately has no external LLM, API key, OCR, permanent raw-file storage, scoring/ranking, or automated decision. The focused frontend does provide bounded CV upload, proposal review, recruiter editing, explicit confirmation, and proposal-only rejection.
 
-## Evolution
+## Scaling and future service extraction
 
-Future phases will introduce domain modules one at a time, with their API contracts, database migrations, security controls, tests, and documentation. The module boundaries are intended to make later extraction possible if independent scaling or ownership warrants it, without paying the cost of distributed transactions and messaging now.
+The Candidate Compliance capability remains inside a modular monolith because the
+current workflows benefit from local transactions across tenant state, audit,
+idempotency, document versioning, CV evidence, and verification outbox records.
+This keeps correctness visible and avoids introducing distributed-transaction
+failure modes before the workload or organisational ownership requires them.
 
-Production work would additionally require managed secrets, TLS termination, database backups and connection pooling, observability, deployment automation, rate limiting, dependency scanning, and an operational RLS migration strategy.
+The first production scaling steps would be horizontal API replicas behind a
+load balancer, PostgreSQL connection pooling, query/index tuning from measured
+plans, independently scalable verification workers, and managed object storage
+only if retained source files become a product requirement. Stateless HTTP
+handlers, explicit contracts, idempotent writes, and the transactional outbox
+already support those changes without changing domain semantics.
+
+If the module later requires independent deployment, Candidate Compliance can be
+extracted behind its existing REST/contracts boundary. I would first give the
+service ownership of its tenant-owned compliance tables, audit evidence,
+idempotency records, and verification outbox. Cross-service communication would
+move to stable identifiers and events rather than shared-table writes. Historical
+data would be migrated deliberately, and the tenant/actor context would remain a
+validated input rather than trusting caller-supplied tenant IDs. Extraction would
+be justified by independent scaling, team ownership, or release cadence—not by
+adding network boundaries for their own sake.
+
+## Trade-offs under current constraints
+
+The implementation deliberately prioritises tenant isolation, authorisation,
+auditability, immutable compliance history, retry safety, and governed AI over
+frontend breadth. The UI is Candidate-centred; global Documents, Verification,
+CV-review, and Audit dashboards are deferred. Document creation is metadata-only
+instead of introducing a general file-storage subsystem. Verification uses a
+transactional outbox and deterministic local verifier rather than external queue
+or provider infrastructure. CV extraction uses a deterministic local provider
+behind a clear interface rather than spending the exercise on model quality.
+
+Version history is returned as a complete per-document collection because the
+history is expected to remain small in this slice; pagination can be added if
+production evidence warrants it. Browser E2E automation is also deferred in
+favour of focused frontend tests plus manual verification of the implemented
+journeys.
+
+These choices keep the submission within the requested scope while concentrating
+engineering effort on the compliance and multi-tenant failure modes that would
+be hardest to retrofit later.
+
+## Production changes
+
+Before production I would add managed secrets and key rotation, TLS termination,
+database backups and restore drills, connection pooling, structured observability,
+rate limiting, dependency/container scanning, production session renewal and
+revocation, deployment-specific CSRF/cookie controls, and an operational RLS
+migration procedure.
+
+The verification worker would move to production queue/provider infrastructure
+with provider authentication, durable monitoring, dead-letter/reconciliation
+procedures, and the verification request ID retained as the provider idempotency
+reference. CV ingestion would require malware scanning, content-type validation,
+object-storage/retention policy where files must be retained, OCR if required,
+and an explicitly governed external-model integration with prompt/model
+versioning and monitoring. Audit browsing/export, legal-hold and retention
+operations would be exposed only through separately authorised operational
+surfaces.
+
+The module boundaries, strict public contracts, transactional idempotency and
+outbox patterns are intended to let these capabilities evolve without weakening
+the existing tenant and compliance invariants.

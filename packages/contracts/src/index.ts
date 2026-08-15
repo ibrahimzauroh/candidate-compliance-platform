@@ -53,6 +53,23 @@ export const loginResponseSchema = z.object({
 
 export type LoginResponse = z.infer<typeof loginResponseSchema>;
 
+export const membershipOptionSchema = z.strictObject({
+  membershipId: z.uuid(),
+  tenantId: z.uuid(),
+  tenantName: z.string(),
+  role: tenantRoleSchema,
+});
+
+export type MembershipOption = z.infer<typeof membershipOptionSchema>;
+
+export const membershipListResponseSchema = z.strictObject({
+  memberships: z.array(membershipOptionSchema),
+});
+
+export type MembershipListResponse = z.infer<
+  typeof membershipListResponseSchema
+>;
+
 const candidateFullNameSchema = z.string().trim().min(1).max(200);
 const candidateEmailSchema = z
   .string()
@@ -225,6 +242,31 @@ export const complianceDocumentVersionSchema = z.strictObject({
 
 export type ComplianceDocumentVersion = z.infer<
   typeof complianceDocumentVersionSchema
+>;
+
+export const complianceDocumentVersionHistoryItemSchema =
+  complianceDocumentVersionSchema.extend({
+    isCurrent: z.boolean(),
+  });
+
+export type ComplianceDocumentVersionHistoryItem = z.infer<
+  typeof complianceDocumentVersionHistoryItemSchema
+>;
+
+export const complianceDocumentVersionHistoryResponseSchema = z
+  .strictObject({
+    items: z.array(complianceDocumentVersionHistoryItemSchema).min(1),
+  })
+  .refine(
+    ({ items }) => items.filter((version) => version.isCurrent).length === 1,
+    {
+      path: ['items'],
+      message: 'Version history must identify exactly one current version.',
+    },
+  );
+
+export type ComplianceDocumentVersionHistoryResponse = z.infer<
+  typeof complianceDocumentVersionHistoryResponseSchema
 >;
 
 export const complianceDocumentSchema = z.strictObject({

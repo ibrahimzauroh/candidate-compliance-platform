@@ -87,6 +87,7 @@ const expectedOperationIds: Record<string, string> = {
   'GET /health': 'getHealth',
   'POST /api/v1/auth/login': 'login',
   'GET /api/v1/auth/me': 'getCurrentUser',
+  'GET /api/v1/memberships': 'listMyMemberships',
   'GET /api/v1/context': 'getTenantContext',
   'POST /api/v1/candidates': 'createCandidate',
   'GET /api/v1/candidates': 'listCandidates',
@@ -98,6 +99,8 @@ const expectedOperationIds: Record<string, string> = {
     'listCandidateComplianceDocuments',
   'GET /api/v1/documents/expiring': 'listExpiringComplianceDocuments',
   'GET /api/v1/documents/{documentId}': 'getComplianceDocument',
+  'GET /api/v1/documents/{documentId}/versions':
+    'listComplianceDocumentVersions',
   'POST /api/v1/documents/{documentId}/versions':
     'createComplianceDocumentVersion',
   'POST /api/v1/documents/{documentId}/approve': 'approveComplianceDocument',
@@ -117,6 +120,7 @@ const expectedPermissions: Record<string, string | null> = {
   'GET /health': null,
   'POST /api/v1/auth/login': null,
   'GET /api/v1/auth/me': null,
+  'GET /api/v1/memberships': null,
   'GET /api/v1/context': null,
   'POST /api/v1/candidates': 'candidate:create',
   'GET /api/v1/candidates': 'candidate:read',
@@ -127,6 +131,7 @@ const expectedPermissions: Record<string, string | null> = {
   'GET /api/v1/candidates/{candidateId}/documents': 'document:read',
   'GET /api/v1/documents/expiring': 'document:read',
   'GET /api/v1/documents/{documentId}': 'document:read',
+  'GET /api/v1/documents/{documentId}/versions': 'document:read',
   'POST /api/v1/documents/{documentId}/versions': 'document:create',
   'POST /api/v1/documents/{documentId}/approve': 'document:approve',
   'POST /api/v1/documents/{documentId}/corrections': 'document:correct',
@@ -143,6 +148,7 @@ const expectedSuccessStatuses: Record<string, string> = {
   'GET /health': '200',
   'POST /api/v1/auth/login': '200',
   'GET /api/v1/auth/me': '200',
+  'GET /api/v1/memberships': '200',
   'GET /api/v1/context': '200',
   'POST /api/v1/candidates': '201',
   'GET /api/v1/candidates': '200',
@@ -153,6 +159,7 @@ const expectedSuccessStatuses: Record<string, string> = {
   'GET /api/v1/candidates/{candidateId}/documents': '200',
   'GET /api/v1/documents/expiring': '200',
   'GET /api/v1/documents/{documentId}': '200',
+  'GET /api/v1/documents/{documentId}/versions': '200',
   'POST /api/v1/documents/{documentId}/versions': '201',
   'POST /api/v1/documents/{documentId}/approve': '200',
   'POST /api/v1/documents/{documentId}/corrections': '201',
@@ -170,7 +177,8 @@ const tenantScopedOperations = new Set(
     (key) =>
       key !== 'GET /health' &&
       key !== 'POST /api/v1/auth/login' &&
-      key !== 'GET /api/v1/auth/me',
+      key !== 'GET /api/v1/auth/me' &&
+      key !== 'GET /api/v1/memberships',
   ),
 );
 
@@ -313,7 +321,7 @@ describe('canonical OpenAPI specification', () => {
     );
     expect(specification.components?.securitySchemes?.bearerAuth).toBeDefined();
     expect(specification.components?.schemas?.ProblemDetails).toBeDefined();
-    expect(operations).toHaveLength(23);
+    expect(operations).toHaveLength(25);
   });
 
   it('matches every registered public Express route and no nonexistent route', () => {
@@ -368,6 +376,38 @@ describe('canonical OpenAPI specification', () => {
         ).toContain('Idempotency-Key');
       }
     }
+  });
+
+  it('keeps authenticated membership discovery independent of tenant selection', () => {
+    const discovery = operations.find(
+      ({ key }) => key === 'GET /api/v1/memberships',
+    );
+
+    expect(discovery).toBeDefined();
+    expect(allParameterNames(discovery!)).not.toContain('X-Tenant-Id');
+    expect(allParameterNames(discovery!)).not.toContain('Idempotency-Key');
+    expect(discovery?.operation.security).toContainEqual({ bearerAuth: [] });
+    expect(discovery?.operation['x-required-permission']).toBeNull();
+  });
+
+  it('documents version history as a tenant-scoped read without idempotency', () => {
+    const history = operations.find(
+      ({ key }) => key === 'GET /api/v1/documents/{documentId}/versions',
+    );
+
+    expect(history).toBeDefined();
+    expect(allParameterNames(history!)).toContain('X-Tenant-Id');
+    expect(allParameterNames(history!)).not.toContain('Idempotency-Key');
+    expect(history?.operation['x-required-permission']).toBe('document:read');
+    expect(history?.operation.responses?.['200']).toMatchObject({
+      content: {
+        'application/json': {
+          schema: {
+            $ref: '#/components/schemas/ComplianceDocumentVersionHistoryResponse',
+          },
+        },
+      },
+    });
   });
 
   it('declares each expected success and at least one Problem Details response', () => {

@@ -8,6 +8,7 @@ import {
   candidateListResponseSchema,
   confirmCvExtractionRequestSchema,
   complianceDocumentSchema,
+  complianceDocumentVersionHistoryResponseSchema,
   correctComplianceDocumentRequestSchema,
   createComplianceDocumentRequestSchema,
   createComplianceDocumentVersionRequestSchema,
@@ -20,6 +21,7 @@ import {
   healthResponseSchema,
   idempotencyKeySchema,
   loginRequestSchema,
+  membershipListResponseSchema,
   noContentResponseSchema,
   problemDetailsSchema,
   requestVerificationRequestSchema,
@@ -124,6 +126,60 @@ describe('tenantContextSchema', () => {
         userId: '20000000-0000-4000-8000-000000000004',
         membershipId: '30000000-0000-4000-8000-000000000004',
         role: 'OWNER',
+      }),
+    ).toThrow();
+  });
+});
+
+describe('membershipListResponseSchema', () => {
+  it('accepts authenticated membership options using the shared role enum', () => {
+    expect(
+      membershipListResponseSchema.parse({
+        memberships: [
+          {
+            membershipId: '30000000-0000-4000-8000-000000000001',
+            tenantId: '10000000-0000-4000-8000-000000000001',
+            tenantName: 'Example Tenant',
+            role: 'ADMIN',
+          },
+        ],
+      }),
+    ).toEqual({
+      memberships: [
+        {
+          membershipId: '30000000-0000-4000-8000-000000000001',
+          tenantId: '10000000-0000-4000-8000-000000000001',
+          tenantName: 'Example Tenant',
+          role: 'ADMIN',
+        },
+      ],
+    });
+  });
+
+  it('accepts an authenticated actor with no memberships', () => {
+    expect(membershipListResponseSchema.parse({ memberships: [] })).toEqual({
+      memberships: [],
+    });
+  });
+
+  it('rejects malformed roles, identifiers, and internal fields', () => {
+    expect(() =>
+      membershipListResponseSchema.parse({
+        memberships: [
+          {
+            membershipId: 'not-a-uuid',
+            tenantId: '10000000-0000-4000-8000-000000000001',
+            tenantName: 'Example Tenant',
+            role: 'OWNER',
+            userId: '20000000-0000-4000-8000-000000000001',
+          },
+        ],
+      }),
+    ).toThrow();
+    expect(() =>
+      membershipListResponseSchema.parse({
+        memberships: [],
+        permissions: [],
       }),
     ).toThrow();
   });
@@ -342,6 +398,43 @@ describe('compliance document response contracts', () => {
         },
       }).items,
     ).toHaveLength(1);
+  });
+
+  it('validates strict public version history with exactly one current item', () => {
+    const history = complianceDocumentVersionHistoryResponseSchema.parse({
+      items: [{ ...document.currentVersion, isCurrent: true }],
+    });
+
+    expect(history.items).toEqual([
+      { ...document.currentVersion, isCurrent: true },
+    ]);
+    expect(() =>
+      complianceDocumentVersionHistoryResponseSchema.parse({ items: [] }),
+    ).toThrow();
+    expect(() =>
+      complianceDocumentVersionHistoryResponseSchema.parse({
+        items: [
+          { ...document.currentVersion, isCurrent: true },
+          {
+            ...document.currentVersion,
+            id: '60000000-0000-4000-8000-000000000002',
+            versionNumber: 2,
+            isCurrent: true,
+          },
+        ],
+      }),
+    ).toThrow();
+    expect(() =>
+      complianceDocumentVersionHistoryResponseSchema.parse({
+        items: [
+          {
+            ...document.currentVersion,
+            isCurrent: true,
+            tenantId: '10000000-0000-4000-8000-000000000001',
+          },
+        ],
+      }),
+    ).toThrow();
   });
 });
 

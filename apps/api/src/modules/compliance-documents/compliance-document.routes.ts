@@ -4,6 +4,7 @@ import {
   candidateDocumentListResponseSchema,
   candidateIdParamsSchema,
   complianceDocumentSchema,
+  complianceDocumentVersionHistoryResponseSchema,
   correctComplianceDocumentRequestSchema,
   createComplianceDocumentRequestSchema,
   createComplianceDocumentVersionRequestSchema,
@@ -29,6 +30,7 @@ import {
   correctComplianceDocument,
   createComplianceDocument,
   getComplianceDocument,
+  listComplianceDocumentVersions,
   listCandidateComplianceDocuments,
   listExpiringComplianceDocuments,
   removeComplianceDocument,
@@ -160,6 +162,25 @@ export function createComplianceDocumentRouter(
       response
         .status(result.status)
         .json(complianceDocumentSchema.parse(result.body));
+    },
+  );
+
+  router.get(
+    '/documents/:documentId/versions',
+    authenticate,
+    requireTenantContext,
+    requirePermission(PERMISSIONS.documentRead),
+    async (request, response) => {
+      const { documentId } = documentIdParamsSchema.parse(request.params);
+      const result = await listComplianceDocumentVersions(
+        prisma,
+        tenantContextFrom(request),
+        documentId,
+      );
+
+      response
+        .status(200)
+        .json(complianceDocumentVersionHistoryResponseSchema.parse(result));
     },
   );
 

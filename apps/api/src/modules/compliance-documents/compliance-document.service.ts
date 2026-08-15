@@ -1,5 +1,6 @@
 import {
   complianceDocumentSchema,
+  type ComplianceDocumentVersionHistoryResponse,
   type CandidateDocumentListQuery,
   type CandidateDocumentListResponse,
   type ComplianceDocument as ComplianceDocumentDto,
@@ -346,6 +347,59 @@ export async function getComplianceDocument(
       action: AUDIT_ACTIONS.documentRead,
       recordType: AUDIT_RECORD_TYPES.complianceDocument,
       recordId: result.id,
+      before: null,
+      after: result,
+    });
+
+    return result;
+  });
+}
+
+export async function listComplianceDocumentVersions(
+  prisma: PrismaClient,
+  tenantContext: TenantContext,
+  documentId: string,
+): Promise<ComplianceDocumentVersionHistoryResponse> {
+  return withTenantTransaction(prisma, tenantContext, async (transaction) => {
+    const document = await transaction.complianceDocument.findFirst({
+      where: {
+        id: documentId,
+        tenantId: tenantContext.tenantId,
+        removedAt: null,
+        candidate: { removedAt: null },
+      },
+      select: { id: true, currentVersionId: true },
+    });
+
+    if (!document) {
+      throw complianceDocumentNotFoundProblem();
+    }
+    if (!document.currentVersionId) {
+      throw new Error('Compliance document current version is missing.');
+    }
+
+    const versions = await transaction.complianceDocumentVersion.findMany({
+      where: {
+        tenantId: tenantContext.tenantId,
+        documentId,
+      },
+      orderBy: [{ versionNumber: 'asc' }, { id: 'asc' }],
+    });
+    const result: ComplianceDocumentVersionHistoryResponse = {
+      items: versions.map((version) => ({
+        ...toVersion(version),
+        isCurrent: version.id === document.currentVersionId,
+      })),
+    };
+
+    if (result.items.filter((version) => version.isCurrent).length !== 1) {
+      throw new Error('Compliance document version history is invalid.');
+    }
+
+    await appendAuditEvent(transaction, tenantContext, {
+      action: AUDIT_ACTIONS.documentRead,
+      recordType: AUDIT_RECORD_TYPES.complianceDocument,
+      recordId: document.id,
       before: null,
       after: result,
     });

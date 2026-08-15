@@ -1,4 +1,4 @@
-# Backend manual testing
+# Manual testing
 
 ## Before running the smoke test
 
@@ -53,6 +53,7 @@ Run the broader validation commands before submission:
 
 ```powershell
 corepack pnpm test
+corepack pnpm test:web
 corepack pnpm openapi:check
 corepack pnpm lint
 corepack pnpm typecheck
@@ -97,6 +98,7 @@ Run the broader validation commands before submission:
 
 ```bash
 corepack pnpm test
+corepack pnpm test:web
 corepack pnpm openapi:check
 corepack pnpm lint
 corepack pnpm typecheck
@@ -109,9 +111,11 @@ documentation pass did not execute or platform-verify it on macOS or Linux.
 ## Shared smoke-test behaviour
 
 `pnpm e2e:smoke` runs the real HTTP, PostgreSQL, and verification smoke journey.
-`pnpm test` runs the full Vitest suite. Run both before submission; the smoke
-test is not a replacement for the complete test suite. Frontend and browser
-acceptance testing is performed separately.
+`pnpm test` runs the full Vitest suite, while `pnpm test:web` runs the focused
+frontend component and server-boundary tests. Run all three before submission;
+the smoke test is not a replacement for the complete test suite. Rendered
+browser acceptance remains separate and no `pnpm e2e:web` command is currently
+implemented.
 
 The smoke test mutates only the explicitly approved local disposable database.
 Run-scoped Candidate and document records are logically removed but
@@ -160,3 +164,85 @@ The API uses an ephemeral loopback listener and the verification processor is
 invoked in-process, so no detached API or worker process is left behind. The
 listener and all database clients are registered for cleanup on success and
 failure.
+
+## Frontend document lifecycle check
+
+When the documented local API, web application, migrations, and seed fixtures
+are available, an examiner can sign in, select an authorised tenant, open a
+Candidate and then open one of its compliance documents. The document view
+shows the server-provided version history and identifies the current version in
+text. Eligible draft or pending-review versions offer an explicit approval
+confirmation. An approved current version is read-only and offers a correction
+form; a successful correction returns a new current `DRAFT` while the approved
+version remains in history.
+
+These controls use the validated server tenant context and server-derived
+idempotency keys. They do not make client state authoritative. Rendered browser,
+320px viewport, and assistive-technology checks remain manual because no
+`pnpm e2e:web` command exists yet.
+
+## Frontend governed CV check
+
+With the same local prerequisites, open a Candidate and upload a non-empty UTF-8
+text or PDF CV no larger than 2 MiB. The browser should show an in-flight
+extraction state and then open a `PROPOSED` review whose AI values are explicitly
+labelled non-authoritative. Reviewers can edit the separate confirmed name,
+skills, years-of-experience, and certification fields before an explicit
+confirmation. The resulting `ACCEPTED` profile is read-only and comes from the
+backend response; the original proposal remains visible separately.
+
+Alternatively, use the distinct proposal-rejection confirmation. The resulting
+`REJECTED` state must say that only the advisory proposal was rejected and that
+the Candidate was not rejected, scored, ranked, removed, or otherwise changed.
+CV upload and both decision paths use validated server tenant context and
+server-derived idempotency keys. Raw CV content is not logged or retained by the
+application. Rendered browser, 320px viewport, and assistive-technology checks
+remain manual because no `pnpm e2e:web` command exists yet.
+
+
+## Browser walkthrough
+
+The primary browser journey has been manually exercised against the local API and
+seeded PostgreSQL database.
+
+Use the development-only password `ComplianceDemo123`.
+
+### Primary happy path
+
+Sign in as `khaleel.admin@iza.com`, select **Khaleel Care Staffing**, then verify:
+
+1. Candidate list/search/filter loads only the selected tenant.
+2. A Candidate can be created and opened.
+3. A compliance document can be created and begins as `DRAFT`.
+4. The document detail shows the current version and persisted version history.
+5. Approval changes an eligible current version to `APPROVED`.
+6. The approved version is presented as immutable.
+7. Correction creates a new current `DRAFT` rather than editing the approved row.
+8. The prior `APPROVED` version remains visible in history.
+9. A text or PDF CV no larger than 2 MiB can be uploaded from Candidate detail.
+10. The resulting extraction is visibly `PROPOSED` and non-authoritative.
+11. Recruiter-confirmed values can be edited independently of the proposed values.
+12. Explicit confirmation produces the accepted profile, or explicit rejection
+    rejects only the proposal.
+
+### Operation-level authorisation check
+
+Sign in as `shared@iza.com`, select **Khaleel Care Staffing**, and attempt an
+approval. That membership is a `RECRUITER`; a bounded permission denial is an
+expected PASS when `document:approve` is not granted. The document must remain
+unchanged.
+
+### Cross-tenant isolation check
+
+Use `shared@iza.com` to switch between its authorised tenant memberships. Copy a
+Candidate or document URL from one selected tenant, switch to the other tenant,
+and open the copied URL. The expected result is a neutral unavailable/not-found
+state with no resource details disclosed. Switch back to the owning tenant and
+confirm the resource is visible again.
+
+### Remaining manual browser checks
+
+Before submission, repeat the primary pages at desktop, tablet, and approximately
+320px width and complete a keyboard-only pass using Tab, Shift+Tab, Enter, Space,
+and Escape where applicable. Automated browser E2E is intentionally not present;
+`pnpm test:web` remains the automated component/server-boundary suite.

@@ -4,7 +4,13 @@ This document is a concise developer guide to the implemented APIs. The canonica
 
 ## Protected-route headers
 
-All protected business routes require:
+Authenticated membership discovery occurs before tenant selection and requires only:
+
+```http
+Authorization: Bearer <token>
+```
+
+All tenant-scoped business routes require:
 
 ```http
 Authorization: Bearer <token>
@@ -18,6 +24,8 @@ All mutation routes additionally require:
 ```http
 Idempotency-Key: <opaque-client-generated-value>
 ```
+
+Direct API clients provide this opaque key. For Candidate creation, compliance-document creation and lifecycle actions, CV extraction, and CV proposal decisions through the web application, the browser supplies only a logical attempt nonce and the same-origin Next.js server derives the raw API key from authenticated session, actor, validated tenant, target aggregate, operation, attempt, and canonical payload or CV content-hash context. The browser neither chooses nor receives that raw key.
 
 Keys are trimmed, must contain 1 to 200 letters, digits, or supported opaque characters (`._~:/+-`), and are scoped to the validated tenant membership and operation. Repeating the same operation and validated input with the same key returns the stored response and original success status without executing the write again. Reusing that scoped key for materially different input returns `409 Conflict`:
 
@@ -42,6 +50,29 @@ Protected routes can return RFC 9457-style Problem Details with content type `ap
   "detail": "You do not have permission to perform this operation."
 }
 ```
+
+## Membership discovery
+
+`GET /api/v1/memberships`
+
+Returns only the authenticated actor's current tenant-membership options for pre-selection UI. It requires Bearer authentication but does not require `X-Tenant-Id`, an idempotency key, or an operation-specific tenant permission. Query, path, body, and incidental tenant-header values are not used as identity selectors.
+
+Success: `200 OK`.
+
+```json
+{
+  "memberships": [
+    {
+      "membershipId": "30000000-0000-4000-8000-000000000001",
+      "tenantId": "10000000-0000-4000-8000-000000000001",
+      "tenantName": "Example Tenant",
+      "role": "ADMIN"
+    }
+  ]
+}
+```
+
+Results are ordered by tenant name and then tenant ID. An authenticated user without memberships receives `{ "memberships": [] }`. The response deliberately excludes permissions, other users, credentials, and tenant internals. Missing, malformed, forged, or expired authentication returns the existing generic `401 Unauthorized` Problem Details response.
 
 ## Audit behaviour
 
@@ -344,6 +375,51 @@ Relevant errors:
 - `401 Unauthorized` — authentication failed.
 - `403 Forbidden` — tenant context is unavailable or `document:read` is denied.
 - `404 Not Found` — the document is nonexistent or unavailable in the selected tenant.
+
+## List compliance document version history
+
+`GET /api/v1/documents/:documentId/versions`
+
+Returns the complete persisted version history for one active logical document. Requires `document:read`. Results are ordered by version number ascending, and exactly one item is marked `isCurrent`. The response does not expose tenant IDs, creator membership IDs, supersession identifiers, or audit data.
+
+This collection is intentionally unpaginated: version histories are append-only, scoped to one document, and expected to remain small. Pagination can be added later without exposing a broader query surface if production volume demonstrates the need.
+
+Success: `200 OK`.
+
+```json
+{
+  "items": [
+    {
+      "id": "61000000-0000-4000-8000-000000000120",
+      "versionNumber": 1,
+      "issueDate": "2026-07-01",
+      "expiryDate": "2027-07-01",
+      "status": "APPROVED",
+      "createdAt": "2026-07-10T09:00:00.000Z",
+      "isCurrent": false
+    },
+    {
+      "id": "61000000-0000-4000-8000-000000000121",
+      "versionNumber": 2,
+      "issueDate": "2026-08-01",
+      "expiryDate": "2027-08-01",
+      "status": "DRAFT",
+      "createdAt": "2026-08-14T10:00:00.000Z",
+      "isCurrent": true
+    }
+  ]
+}
+```
+
+The read runs inside the validated tenant transaction and appends one `document:read` audit event for the disclosed history. Nonexistent, cross-tenant, removed documents, and documents beneath removed Candidates share neutral `404` behaviour.
+
+Relevant errors:
+
+- `400 Bad Request` — `documentId` or tenant context is invalid.
+- `401 Unauthorized` — authentication failed.
+- `403 Forbidden` — tenant context is unavailable or `document:read` is denied.
+- `404 Not Found` — the document is nonexistent, inactive, or unavailable in the selected tenant.
+- `500 Internal Server Error` — an unexpected error occurred without exposing internal details.
 
 ## List documents expiring within 30 days
 
@@ -649,3 +725,19 @@ The database restricts runtime updates to decision/profile columns, applies forc
 ## Current versioning limitations
 
 Earlier version rows are preserved and no destructive compliance-data update endpoint exists. Retention-safe `DELETE` marks only a logical aggregate inactive and does not erase evidence. The restricted runtime role can update only the explicitly granted aggregate, version, workflow, and AI columns; PostgreSQL prevents restoration, physical deletion, changes to approved rows, and unsupported approval transitions. Approval reasons/comments and a separate review-submission operation are not modelled; `PENDING_REVIEW` remains an allowed approval source for future workflows. Privileged retention/erasure operations and audit browsing/export remain deferred.
+
+
+## Web application integration
+
+The authenticated web application is Candidate-centred. Browser code calls
+same-origin Next.js route handlers; the backend Bearer token remains in an
+`HttpOnly` session cookie and is never returned to browser JavaScript. The server
+revalidates the selected tenant before tenant-scoped calls and derives raw
+backend idempotency keys for Candidate creation, document creation/lifecycle
+actions, CV extraction, and CV decisions.
+
+The implemented browser workflows cover Candidate list/create/detail,
+compliance-document list/create/read, immutable version history, approval,
+governed correction, and governed CV upload/proposal review/confirm/reject.
+Standalone global Verification and Audit dashboards are intentionally not part of
+the focused frontend; their backend APIs remain documented above.

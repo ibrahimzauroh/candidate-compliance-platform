@@ -9,6 +9,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createApp } from '../../app.js';
 import { loadEnvironment } from '../../config/load-environment.js';
+import { canonicalHash } from '../../infrastructure/crypto/canonical-hash.js';
 import {
   addComplianceDocumentVersion,
   createComplianceDocument,
@@ -140,6 +141,17 @@ function getDocumentRequest(
 ) {
   return request(app)
     .get(`/api/v1/documents/${documentId}`)
+    .set('Authorization', `Bearer ${tokenFor(userId)}`)
+    .set('X-Tenant-Id', tenantId);
+}
+
+function getVersionHistoryRequest(
+  userId: string,
+  tenantId: string,
+  documentId: string,
+) {
+  return request(app)
+    .get(`/api/v1/documents/${documentId}/versions`)
     .set('Authorization', `Bearer ${tokenFor(userId)}`)
     .set('X-Tenant-Id', tenantId);
 }
@@ -545,6 +557,132 @@ describe('GET /api/v1/documents/:documentId', () => {
     );
 
     expect(response.status).toBe(400);
+  });
+});
+
+describe('GET /api/v1/documents/:documentId/versions', () => {
+  it('returns corrected history in version order with one current version and no internal fields', async () => {
+    const created = await createDocumentAs(ids.users.compliance);
+    const approved = await request(app)
+      .post(`/api/v1/documents/${created.body.id}/approve`)
+      .set('Authorization', `Bearer ${tokenFor(ids.users.compliance)}`)
+      .set('X-Tenant-Id', ids.tenants.zauroh)
+      .set('Idempotency-Key', nextIdempotencyKey())
+      .send({});
+    const corrected = await request(app)
+      .post(`/api/v1/documents/${created.body.id}/corrections`)
+      .set('Authorization', `Bearer ${tokenFor(ids.users.compliance)}`)
+      .set('X-Tenant-Id', ids.tenants.zauroh)
+      .set('Idempotency-Key', nextIdempotencyKey())
+      .send({ issueDate: '2026-09-01', expiryDate: '2027-09-01' });
+    const response = await getVersionHistoryRequest(
+      ids.users.shared,
+      ids.tenants.zauroh,
+      created.body.id,
+    );
+    const audit = await adminPrisma.auditEvent.findMany({
+      where: {
+        recordId: created.body.id,
+        action: 'document:read',
+      },
+    });
+
+    expect(approved.status).toBe(200);
+    expect(corrected.status).toBe(201);
+    expect(response.status).toBe(200);
+    expect(response.body.items).toHaveLength(2);
+    expect(
+      response.body.items.map(
+        (version: {
+          versionNumber: number;
+          status: string;
+          isCurrent: boolean;
+        }) => ({
+          versionNumber: version.versionNumber,
+          status: version.status,
+          isCurrent: version.isCurrent,
+        }),
+      ),
+    ).toEqual([
+      { versionNumber: 1, status: 'APPROVED', isCurrent: false },
+      { versionNumber: 2, status: 'DRAFT', isCurrent: true },
+    ]);
+    expect(Object.keys(response.body.items[0]).sort()).toEqual(
+      [
+        'createdAt',
+        'expiryDate',
+        'id',
+        'isCurrent',
+        'issueDate',
+        'status',
+        'versionNumber',
+      ].sort(),
+    );
+    expect(audit).toHaveLength(1);
+    expect(audit[0]?.beforeHash).toBeNull();
+    expect(audit[0]?.afterHash).toBe(canonicalHash(response.body));
+  });
+
+  it('requires authentication and validated tenant context', async () => {
+    const unauthenticated = await request(app)
+      .get(`/api/v1/documents/${ids.documents.zaurohSeed}/versions`)
+      .set('X-Tenant-Id', ids.tenants.zauroh);
+    const missingTenant = await request(app)
+      .get(`/api/v1/documents/${ids.documents.zaurohSeed}/versions`)
+      .set('Authorization', `Bearer ${tokenFor(ids.users.admin)}`);
+    const unownedTenant = await getVersionHistoryRequest(
+      ids.users.admin,
+      ids.tenants.khaleel,
+      ids.documents.khaleelSeed,
+    );
+
+    expect(unauthenticated.status).toBe(401);
+    expect(missingTenant.status).toBe(400);
+    expect(unownedTenant.status).toBe(403);
+    expect(unownedTenant.body).toEqual(forbiddenProblem);
+  });
+
+  it('gives cross-tenant and nonexistent document IDs identical 404 responses', async () => {
+    const crossTenant = await getVersionHistoryRequest(
+      ids.users.admin,
+      ids.tenants.zauroh,
+      ids.documents.khaleelSeed,
+    );
+    const nonexistent = await getVersionHistoryRequest(
+      ids.users.admin,
+      ids.tenants.zauroh,
+      ids.documents.nonexistent,
+    );
+
+    expect(crossTenant.status).toBe(404);
+    expect(nonexistent.status).toBe(404);
+    expect(crossTenant.body).toEqual(documentNotFoundProblem);
+    expect(nonexistent.body).toEqual(documentNotFoundProblem);
+  });
+
+  it('returns neutral 404 and no read audit for an inactive document', async () => {
+    const created = await createDocumentAs();
+    await adminPrisma.complianceDocument.update({
+      where: { id: created.body.id },
+      data: { removedAt: new Date() },
+    });
+
+    const response = await getVersionHistoryRequest(
+      ids.users.admin,
+      ids.tenants.zauroh,
+      created.body.id,
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual(documentNotFoundProblem);
+    await expect(
+      adminPrisma.auditEvent.count({
+        where: {
+          recordId: created.body.id,
+          action: 'document:read',
+        },
+      }),
+    ).resolves.toBe(0);
   });
 });
 

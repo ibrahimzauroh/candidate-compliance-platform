@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createApp } from '../../app.js';
 import { loadEnvironment } from '../../config/load-environment.js';
+import { withAuthenticatedActorTransaction } from './with-authenticated-actor-transaction.js';
 import { withTenantTransaction } from './with-tenant-transaction.js';
 
 loadEnvironment();
@@ -121,6 +122,13 @@ interface MembershipFunctionRow {
   role: TenantRole;
 }
 
+interface ActorMembershipFunctionRow {
+  membership_id: string;
+  tenant_id: string;
+  tenant_name: string;
+  role: TenantRole;
+}
+
 async function validateMembership(
   userId: string | null,
   tenantId: string | null,
@@ -132,6 +140,19 @@ async function validateMembership(
       ${tenantId}::uuid
     )
   `;
+}
+
+async function listActorMemberships(
+  userId: string,
+): Promise<ActorMembershipFunctionRow[]> {
+  return withAuthenticatedActorTransaction(
+    runtimePrisma,
+    { userId },
+    (transaction) => transaction.$queryRaw<ActorMembershipFunctionRow[]>`
+      SELECT membership_id, tenant_id, tenant_name, role
+      FROM public.list_current_actor_memberships()
+    `,
+  );
 }
 
 beforeAll(async () => {
@@ -809,6 +830,138 @@ describe('validate_tenant_membership bootstrap function', () => {
         (membership) => membership.tenantId === ids.tenants.zauroh,
       ),
     ).toBe(true);
+  });
+});
+
+describe('list_current_actor_memberships discovery function', () => {
+  it('is no-argument, SECURITY DEFINER, owner-controlled, and narrowly executable', async () => {
+    const functions = await adminPrisma.$queryRaw<
+      Array<{
+        owner: string;
+        security_definer: boolean;
+        argument_types: string;
+        return_shape: string;
+        settings: string[];
+        public_execute: boolean;
+        runtime_execute: boolean;
+      }>
+    >`
+      SELECT
+        pg_catalog.pg_get_userbyid(procedure.proowner) AS owner,
+        procedure.prosecdef AS security_definer,
+        pg_catalog.pg_get_function_identity_arguments(procedure.oid)
+          AS argument_types,
+        pg_catalog.pg_get_function_result(procedure.oid) AS return_shape,
+        procedure.proconfig AS settings,
+        EXISTS (
+          SELECT 1
+          FROM pg_catalog.aclexplode(
+            COALESCE(
+              procedure.proacl,
+              pg_catalog.acldefault('f', procedure.proowner)
+            )
+          ) AS acl
+          WHERE acl.grantee = 0
+            AND acl.privilege_type = 'EXECUTE'
+        ) AS public_execute,
+        pg_catalog.has_function_privilege(
+          'candidate_compliance_app',
+          procedure.oid,
+          'EXECUTE'
+        ) AS runtime_execute
+      FROM pg_catalog.pg_proc AS procedure
+      JOIN pg_catalog.pg_namespace AS namespace
+        ON namespace.oid = procedure.pronamespace
+      WHERE namespace.nspname = 'public'
+        AND procedure.proname = 'list_current_actor_memberships'
+    `;
+
+    expect(functions).toEqual([
+      {
+        owner: 'candidate_compliance',
+        security_definer: true,
+        argument_types: '',
+        return_shape:
+          'TABLE(membership_id uuid, tenant_id uuid, tenant_name text, role tenant_role)',
+        settings: ['search_path=pg_catalog, pg_temp'],
+        public_execute: false,
+        runtime_execute: true,
+      },
+    ]);
+  });
+
+  it('returns only the transaction-local authenticated actor memberships', async () => {
+    await expect(listActorMemberships(ids.users.shared)).resolves.toEqual([
+      {
+        membership_id: ids.memberships.khaleelShared,
+        tenant_id: ids.tenants.khaleel,
+        tenant_name: 'Khaleel Care Staffing',
+        role: TenantRole.RECRUITER,
+      },
+      {
+        membership_id: ids.memberships.zaurohShared,
+        tenant_id: ids.tenants.zauroh,
+        tenant_name: 'Zauroh Recruitment',
+        role: TenantRole.VIEWER,
+      },
+    ]);
+    await expect(listActorMemberships(ids.users.admin)).resolves.toEqual([
+      {
+        membership_id: ids.memberships.zaurohAdmin,
+        tenant_id: ids.tenants.zauroh,
+        tenant_name: 'Zauroh Recruitment',
+        role: TenantRole.ADMIN,
+      },
+    ]);
+  });
+
+  it('cannot enumerate memberships without authenticated actor state or through direct table access', async () => {
+    await expect(
+      runtimePrisma.$queryRaw`
+        SELECT membership_id, tenant_id, tenant_name, role
+        FROM public.list_current_actor_memberships()
+      `,
+    ).resolves.toEqual([]);
+    await expect(
+      runtimePrisma.$queryRaw`
+        SELECT id, tenant_id, user_id, role
+        FROM public.tenant_memberships
+        ORDER BY id
+      `,
+    ).resolves.toEqual([]);
+  });
+
+  it('keeps actor state transaction-local and does not establish tenant state', async () => {
+    const inside = await withAuthenticatedActorTransaction(
+      runtimePrisma,
+      { userId: ids.users.shared },
+      (transaction) => transaction.$queryRaw<
+        Array<{ actor_user_id: string | null; tenant_id: string | null }>
+      >`
+        SELECT
+          NULLIF(
+            pg_catalog.current_setting('app.current_actor_user_id', true),
+            ''
+          ) AS actor_user_id,
+          NULLIF(
+            pg_catalog.current_setting('app.current_tenant_id', true),
+            ''
+          ) AS tenant_id
+      `,
+    );
+    const after = await runtimePrisma.$queryRaw<
+      Array<{ actor_user_id: string | null }>
+    >`
+      SELECT NULLIF(
+        pg_catalog.current_setting('app.current_actor_user_id', true),
+        ''
+      ) AS actor_user_id
+    `;
+
+    expect(inside).toEqual([
+      { actor_user_id: ids.users.shared, tenant_id: null },
+    ]);
+    expect(after).toEqual([{ actor_user_id: null }]);
   });
 });
 
