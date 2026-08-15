@@ -30,6 +30,11 @@ describe('CandidateList', () => {
     expect(screen.getByText('Compliance Engineer')).toBeTruthy();
     expect(screen.getAllByText('Role applied for').length).toBeGreaterThan(0);
     expect(screen.getByText('16 Aug 2026')).toBeTruthy();
+    expect(
+      screen
+        .getByRole('link', { name: 'View Ada Candidate' })
+        .getAttribute('href'),
+    ).toBe('/candidates/40000000-0000-4000-8000-000000000001');
   });
 
   it('distinguishes an empty tenant from filtered no results', () => {

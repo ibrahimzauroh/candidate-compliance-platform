@@ -49,6 +49,7 @@ export function CandidateList({ candidates, filtered }: CandidateListProps) {
         <span>Candidate</span>
         <span>Role applied for</span>
         <span>Updated</span>
+        <span>Action</span>
       </div>
       <ul className="candidate-list">
         {candidates.map((candidate) => (
@@ -59,7 +60,9 @@ export function CandidateList({ candidates, filtered }: CandidateListProps) {
                   Candidate
                 </dt>
                 <dd>
-                  <strong>{candidate.fullName}</strong>
+                  <Link href={`/candidates/${candidate.id}`}>
+                    <strong>{candidate.fullName}</strong>
+                  </Link>
                   <span>{candidate.email}</span>
                 </dd>
               </div>
@@ -77,6 +80,18 @@ export function CandidateList({ candidates, filtered }: CandidateListProps) {
                   <time dateTime={candidate.updatedAt}>
                     {dateFormatter.format(new Date(candidate.updatedAt))}
                   </time>
+                </dd>
+              </div>
+              <div className="candidate-record__action">
+                <dt className="sr-only">Action</dt>
+                <dd>
+                  <Link
+                    className="button button--quiet"
+                    href={`/candidates/${candidate.id}`}
+                    aria-label={`View ${candidate.fullName}`}
+                  >
+                    View
+                  </Link>
                 </dd>
               </div>
             </dl>

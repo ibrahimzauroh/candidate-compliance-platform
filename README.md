@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository implements a secure, multi-tenant candidate compliance module. It includes local infrastructure, a relational tenant model, deterministic development fixtures, platform authentication, validated tenant context, operation-specific authorisation, tenant-scoped Candidate and ComplianceDocument APIs, an append-only audit ledger, PostgreSQL-backed Right-to-Work verification, governed CV extraction, and a focused authenticated web application. The frontend supports sign-in, actor-scoped membership discovery, backend-validated tenant selection, a protected application shell, and Candidate list and creation workflows. Candidate detail and the document, verification, and CV frontend workflows remain intentionally deferred.
+This repository implements a secure, multi-tenant candidate compliance module. It includes local infrastructure, a relational tenant model, deterministic development fixtures, platform authentication, validated tenant context, operation-specific authorisation, tenant-scoped Candidate and ComplianceDocument APIs, an append-only audit ledger, PostgreSQL-backed Right-to-Work verification, governed CV extraction, and a focused authenticated web application. The frontend supports sign-in, actor-scoped membership discovery, backend-validated tenant selection, a protected application shell, Candidate list and creation, Candidate detail, and basic compliance-document list/create/read workflows. Candidate editing/removal and the document approval/correction, verification, and CV frontend workflows remain intentionally deferred.
 
 ## Architecture summary
 
@@ -204,9 +204,9 @@ The health check is available at `GET http://localhost:4000/health`.
 pnpm dev:web
 ```
 
-The application is available at `http://localhost:3000`. It provides sign-in, membership-based tenant selection, the protected shell, a server-paginated Candidate list with search and supported filters, and Add Candidate. Candidate detail/edit/removal and document, verification, and CV screens are not implemented.
+The application is available at `http://localhost:3000`. It provides sign-in, membership-based tenant selection, the protected shell, a server-paginated Candidate list with search and supported filters, Add Candidate, Candidate detail, and paginated compliance-document list/create/read screens. Document creation follows the API's metadata-only JSON contract and creates a `DRAFT`; it is not a file-upload or approval action. Candidate edit/removal and document lifecycle, verification, and CV screens are not implemented.
 
-The frontend uses same-origin Next.js route handlers as its session boundary. The API JWT remains in an `HttpOnly` cookie and is not returned to browser JavaScript. Tenant selection is constrained to the authenticated actor's discovered memberships and revalidated through the backend context endpoint; client state is never treated as authorisation. Candidate creation uses a server-derived idempotency key, while the Express API remains authoritative for tenant scope, permissions, validation, and idempotent replay.
+The frontend uses same-origin Next.js route handlers as its session boundary. The API JWT remains in an `HttpOnly` cookie and is not returned to browser JavaScript. Tenant selection is constrained to the authenticated actor's discovered memberships and revalidated through the backend context endpoint; client state is never treated as authorisation. Candidate and compliance-document creation use server-derived idempotency keys, while the Express API remains authoritative for tenant scope, permissions, validation, and idempotent replay.
 
 ## Running worker
 
@@ -296,7 +296,7 @@ AI was used for implementation acceleration, refactoring suggestions, test gener
 - The local verifier is deterministic and intentionally does not represent a production identity-check provider; production integration requires provider authentication, idempotency, timeout handling, and operational monitoring.
 - Outbox polling runs as a local Node.js worker without distributed scheduling or leader election.
 - CV extraction uses a deterministic local provider and text extraction only. It has no OCR, external model, prompt orchestration, malware scanning, or permanent file storage; production uploads require additional content-security controls and an explicitly governed provider integration.
-- The frontend currently covers authentication, tenant selection, Candidate list/search/filter/pagination, and Candidate creation only. Candidate detail/edit/removal and document, verification, CV, and audit screens remain intentionally deferred.
+- The frontend currently covers authentication, tenant selection, Candidate list/search/filter/pagination, Candidate creation/detail, and basic compliance-document list/create/read workflows. Candidate edit/removal, document approval/correction/version history, verification, CV, and audit screens remain intentionally deferred.
 - Frontend component and server-boundary behaviour is covered by `pnpm test:web`, but browser E2E, rendered viewport checks, and manual assistive-technology verification remain outstanding. No `pnpm e2e:web` command exists yet.
 - Frontend sign-out clears the local same-origin cookies but does not revoke an issued backend JWT. Refresh tokens and session renewal are not implemented.
 - The frontend does not receive operation-level permission discovery, so the API remains solely authoritative when a role cannot perform an offered operation.

@@ -6,6 +6,7 @@ import {
   type Candidate,
   type CreateCandidateRequest,
 } from '@candidate-compliance/contracts';
+import Link from 'next/link';
 import {
   type ChangeEvent,
   type FormEvent,
@@ -253,9 +254,9 @@ export function CandidateForm({
         <Button type="submit" loading={submitting}>
           {submitting ? 'Creating candidate' : 'Create candidate'}
         </Button>
-        <a className="button button--quiet" href="/candidates">
+        <Link className="button button--quiet" href="/candidates">
           Cancel
-        </a>
+        </Link>
       </div>
 
       <p className="sr-only" role="status" aria-live="polite">

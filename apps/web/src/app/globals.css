@@ -720,10 +720,9 @@ h2 {
 .candidate-list__header,
 .candidate-record__fields {
   display: grid;
-  grid-template-columns: minmax(14rem, 1.5fr) minmax(10rem, 1fr) minmax(
-      8rem,
-      0.5fr
-    );
+  grid-template-columns:
+    minmax(14rem, 1.5fr) minmax(10rem, 1fr) minmax(8rem, 0.5fr)
+    auto;
   gap: 1rem;
 }
 
@@ -774,10 +773,170 @@ h2 {
   color: var(--text-primary);
 }
 
+.candidate-record__identity a {
+  width: fit-content;
+  text-underline-offset: 0.2rem;
+}
+
+.candidate-record__action,
+.document-record__action {
+  justify-self: end;
+}
+
 .candidate-record__identity span,
 .candidate-record time {
   color: var(--text-secondary);
   font-size: 0.875rem;
+}
+
+.candidate-detail-page,
+.document-detail-page,
+.candidate-detail,
+.candidate-documents {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--border);
+}
+
+.metadata-grid > div {
+  min-width: 0;
+  padding: 1.1rem;
+  background: var(--navy-900);
+}
+
+.metadata-grid dt,
+.document-record__mobile-label {
+  margin-bottom: 0.25rem;
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.metadata-grid dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.metadata-grid a {
+  text-underline-offset: 0.2rem;
+}
+
+.metadata-grid--document {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.section-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.section-heading h2,
+.section-heading p {
+  margin-bottom: 0;
+}
+
+.section-heading > p {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.document-list__header,
+.document-record__fields {
+  display: grid;
+  grid-template-columns:
+    minmax(13rem, 1.4fr) minmax(8rem, 0.7fr) minmax(8rem, 0.7fr)
+    auto;
+  gap: 1rem;
+}
+
+.document-list__header {
+  padding: 0 1.25rem 0.65rem;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.document-list {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.document-record {
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1.1rem 1.25rem;
+  background: var(--navy-900);
+}
+
+.document-record__fields {
+  align-items: center;
+  margin: 0;
+}
+
+.document-record__fields > div {
+  min-width: 0;
+}
+
+.document-record__fields dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.document-record__fields dd > strong,
+.document-record__fields dd > span {
+  display: block;
+}
+
+.document-record__fields dd > span:not(.status-badge),
+.document-record__fields time {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.status-badge--approved {
+  border-color: rgb(110 231 183 / 45%);
+  background: var(--success-surface);
+  color: var(--success);
+}
+
+.status-badge--rejected {
+  border-color: rgb(252 165 165 / 45%);
+  background: var(--error-surface);
+  color: var(--error);
+}
+
+.document-date-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.integrity-note {
+  margin: 0;
+  border-left: 3px solid var(--amber-500);
+  padding: 0.85rem 1rem;
+  background: var(--amber-tint);
+  color: var(--amber-200);
 }
 
 .pagination {
@@ -1012,16 +1171,19 @@ h2 {
     flex: 1 1 auto;
   }
 
-  .candidate-list__header {
+  .candidate-list__header,
+  .document-list__header {
     display: none;
   }
 
-  .candidate-record__fields {
+  .candidate-record__fields,
+  .document-record__fields {
     grid-template-columns: 1fr;
     gap: 0.9rem;
   }
 
-  .candidate-record__mobile-label {
+  .candidate-record__mobile-label,
+  .document-record__mobile-label {
     position: static;
     width: auto;
     height: auto;
@@ -1034,6 +1196,26 @@ h2 {
     font-weight: 800;
     letter-spacing: 0.08em;
     text-transform: uppercase;
+  }
+
+  .candidate-record__action,
+  .document-record__action {
+    justify-self: stretch;
+  }
+
+  .candidate-record__action .button,
+  .document-record__action .button {
+    width: 100%;
+  }
+
+  .metadata-grid,
+  .metadata-grid--document {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .section-heading {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .pagination {
@@ -1060,9 +1242,16 @@ h2 {
   }
 
   .candidate-filters__actions,
-  .candidate-form__actions {
+  .candidate-form__actions,
+  .document-date-fields {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .metadata-grid,
+  .metadata-grid--document,
+  .document-date-fields {
+    grid-template-columns: 1fr;
   }
 }
 

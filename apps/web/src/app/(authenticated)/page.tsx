@@ -48,7 +48,8 @@ export default function OverviewPage() {
           <h2>Candidate intake is ready.</h2>
         </div>
         <p>
-          Open Candidates to search active records or add a candidate. Document,
+          Open Candidates to search active records, add a candidate, and manage
+          their basic compliance-document metadata. Approval, correction,
           verification and CV workflows remain intentionally unavailable.
         </p>
       </div>
