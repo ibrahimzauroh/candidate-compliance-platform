@@ -376,6 +376,51 @@ Relevant errors:
 - `403 Forbidden` — tenant context is unavailable or `document:read` is denied.
 - `404 Not Found` — the document is nonexistent or unavailable in the selected tenant.
 
+## List compliance document version history
+
+`GET /api/v1/documents/:documentId/versions`
+
+Returns the complete persisted version history for one active logical document. Requires `document:read`. Results are ordered by version number ascending, and exactly one item is marked `isCurrent`. The response does not expose tenant IDs, creator membership IDs, supersession identifiers, or audit data.
+
+This collection is intentionally unpaginated: version histories are append-only, scoped to one document, and expected to remain small. Pagination can be added later without exposing a broader query surface if production volume demonstrates the need.
+
+Success: `200 OK`.
+
+```json
+{
+  "items": [
+    {
+      "id": "61000000-0000-4000-8000-000000000120",
+      "versionNumber": 1,
+      "issueDate": "2026-07-01",
+      "expiryDate": "2027-07-01",
+      "status": "APPROVED",
+      "createdAt": "2026-07-10T09:00:00.000Z",
+      "isCurrent": false
+    },
+    {
+      "id": "61000000-0000-4000-8000-000000000121",
+      "versionNumber": 2,
+      "issueDate": "2026-08-01",
+      "expiryDate": "2027-08-01",
+      "status": "DRAFT",
+      "createdAt": "2026-08-14T10:00:00.000Z",
+      "isCurrent": true
+    }
+  ]
+}
+```
+
+The read runs inside the validated tenant transaction and appends one `document:read` audit event for the disclosed history. Nonexistent, cross-tenant, removed documents, and documents beneath removed Candidates share neutral `404` behaviour.
+
+Relevant errors:
+
+- `400 Bad Request` — `documentId` or tenant context is invalid.
+- `401 Unauthorized` — authentication failed.
+- `403 Forbidden` — tenant context is unavailable or `document:read` is denied.
+- `404 Not Found` — the document is nonexistent, inactive, or unavailable in the selected tenant.
+- `500 Internal Server Error` — an unexpected error occurred without exposing internal details.
+
 ## List documents expiring within 30 days
 
 `GET /api/v1/documents/expiring`

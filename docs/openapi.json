@@ -460,6 +460,32 @@
     },
     "/api/v1/documents/{documentId}/versions": {
       "parameters": [{ "$ref": "#/components/parameters/DocumentId" }],
+      "get": {
+        "operationId": "listComplianceDocumentVersions",
+        "summary": "List document version history",
+        "description": "Returns the complete persisted version history in ascending version-number order. Exactly one item identifies the current version. Internal tenant, creator and supersession identifiers are not exposed.",
+        "tags": ["Compliance documents"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": "document:read",
+        "parameters": [{ "$ref": "#/components/parameters/TenantIdHeader" }],
+        "responses": {
+          "200": {
+            "description": "Complete immutable version history.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComplianceDocumentVersionHistoryResponse"
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      },
       "post": {
         "operationId": "createComplianceDocumentVersion",
         "summary": "Create a document version",
@@ -1189,6 +1215,49 @@
           "expiryDate": { "$ref": "#/components/schemas/NullableDate" },
           "status": { "$ref": "#/components/schemas/ComplianceDocumentStatus" },
           "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ComplianceDocumentVersionHistoryItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "versionNumber",
+          "issueDate",
+          "expiryDate",
+          "status",
+          "createdAt",
+          "isCurrent"
+        ],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/Uuid" },
+          "versionNumber": { "type": "integer", "minimum": 1 },
+          "issueDate": { "$ref": "#/components/schemas/NullableDate" },
+          "expiryDate": { "$ref": "#/components/schemas/NullableDate" },
+          "status": { "$ref": "#/components/schemas/ComplianceDocumentStatus" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "isCurrent": { "type": "boolean" }
+        }
+      },
+      "ComplianceDocumentVersionHistoryResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "contains": {
+              "type": "object",
+              "required": ["isCurrent"],
+              "properties": { "isCurrent": { "const": true } }
+            },
+            "minContains": 1,
+            "maxContains": 1,
+            "items": {
+              "$ref": "#/components/schemas/ComplianceDocumentVersionHistoryItem"
+            }
+          }
         }
       },
       "ComplianceDocument": {

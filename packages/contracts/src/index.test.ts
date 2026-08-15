@@ -8,6 +8,7 @@ import {
   candidateListResponseSchema,
   confirmCvExtractionRequestSchema,
   complianceDocumentSchema,
+  complianceDocumentVersionHistoryResponseSchema,
   correctComplianceDocumentRequestSchema,
   createComplianceDocumentRequestSchema,
   createComplianceDocumentVersionRequestSchema,
@@ -397,6 +398,43 @@ describe('compliance document response contracts', () => {
         },
       }).items,
     ).toHaveLength(1);
+  });
+
+  it('validates strict public version history with exactly one current item', () => {
+    const history = complianceDocumentVersionHistoryResponseSchema.parse({
+      items: [{ ...document.currentVersion, isCurrent: true }],
+    });
+
+    expect(history.items).toEqual([
+      { ...document.currentVersion, isCurrent: true },
+    ]);
+    expect(() =>
+      complianceDocumentVersionHistoryResponseSchema.parse({ items: [] }),
+    ).toThrow();
+    expect(() =>
+      complianceDocumentVersionHistoryResponseSchema.parse({
+        items: [
+          { ...document.currentVersion, isCurrent: true },
+          {
+            ...document.currentVersion,
+            id: '60000000-0000-4000-8000-000000000002',
+            versionNumber: 2,
+            isCurrent: true,
+          },
+        ],
+      }),
+    ).toThrow();
+    expect(() =>
+      complianceDocumentVersionHistoryResponseSchema.parse({
+        items: [
+          {
+            ...document.currentVersion,
+            isCurrent: true,
+            tenantId: '10000000-0000-4000-8000-000000000001',
+          },
+        ],
+      }),
+    ).toThrow();
   });
 });
 

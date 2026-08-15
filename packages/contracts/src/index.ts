@@ -244,6 +244,31 @@ export type ComplianceDocumentVersion = z.infer<
   typeof complianceDocumentVersionSchema
 >;
 
+export const complianceDocumentVersionHistoryItemSchema =
+  complianceDocumentVersionSchema.extend({
+    isCurrent: z.boolean(),
+  });
+
+export type ComplianceDocumentVersionHistoryItem = z.infer<
+  typeof complianceDocumentVersionHistoryItemSchema
+>;
+
+export const complianceDocumentVersionHistoryResponseSchema = z
+  .strictObject({
+    items: z.array(complianceDocumentVersionHistoryItemSchema).min(1),
+  })
+  .refine(
+    ({ items }) => items.filter((version) => version.isCurrent).length === 1,
+    {
+      path: ['items'],
+      message: 'Version history must identify exactly one current version.',
+    },
+  );
+
+export type ComplianceDocumentVersionHistoryResponse = z.infer<
+  typeof complianceDocumentVersionHistoryResponseSchema
+>;
+
 export const complianceDocumentSchema = z.strictObject({
   id: z.uuid(),
   candidateId: z.uuid(),

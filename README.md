@@ -149,6 +149,7 @@ The current document surface creates a logical document with version 1, lists an
 POST  /api/v1/candidates/:candidateId/documents
 GET   /api/v1/candidates/:candidateId/documents
 GET   /api/v1/documents/:documentId
+GET   /api/v1/documents/:documentId/versions
 GET   /api/v1/documents/expiring
 POST  /api/v1/documents/:documentId/versions
 POST  /api/v1/documents/:documentId/approve
@@ -156,7 +157,7 @@ POST  /api/v1/documents/:documentId/corrections
 DELETE /api/v1/documents/:documentId
 ```
 
-New versions start as `DRAFT`; tenant ownership, creator membership, version number, status transitions, and current-version selection are server-controlled. A current `DRAFT` or `PENDING_REVIEW` version may be approved, while correcting a current `APPROVED` version creates a new `DRAFT` that supersedes it and atomically becomes current. The approved row is retained unchanged. Document `DELETE` requires `document:remove` and marks only the logical document inactive; every immutable version, correction chain, verification record, and audit event remains stored. Removed documents are excluded from reads, lists, expiry queries, lifecycle writes, and verification API access. All document mutations require an `Idempotency-Key`, use operation-specific permissions, and write their audit event transactionally. The expiring-documents route returns current versions expiring from today through day 30 for the validated tenant. See [docs/api.md](docs/api.md) for payloads, pagination, filters, responses, and lifecycle rules.
+New versions start as `DRAFT`; tenant ownership, creator membership, version number, status transitions, and current-version selection are server-controlled. The authenticated history endpoint returns the complete immutable version chain in ascending version order and identifies the current version without exposing tenant or creator identifiers. A current `DRAFT` or `PENDING_REVIEW` version may be approved, while correcting a current `APPROVED` version creates a new `DRAFT` that supersedes it and atomically becomes current. The approved row is retained unchanged. Document `DELETE` requires `document:remove` and marks only the logical document inactive; every immutable version, correction chain, verification record, and audit event remains stored. Removed documents are excluded from reads, lists, expiry queries, lifecycle writes, and verification API access. All document mutations require an `Idempotency-Key`, use operation-specific permissions, and write their audit event transactionally. The expiring-documents route returns current versions expiring from today through day 30 for the validated tenant. See [docs/api.md](docs/api.md) for payloads, pagination, filters, responses, and lifecycle rules.
 
 ## Right-to-Work verification
 
