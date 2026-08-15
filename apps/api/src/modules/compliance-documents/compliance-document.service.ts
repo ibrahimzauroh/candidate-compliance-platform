@@ -536,7 +536,18 @@ export async function approveComplianceDocument(
       );
 
       if (currentVersion.status === ComplianceDocumentStatus.APPROVED) {
-        return toDocument(document, currentVersion);
+        const unchanged = toDocument(document, currentVersion);
+
+        await appendAuditEvent(transaction, tenantContext, {
+          action: AUDIT_ACTIONS.documentApprove,
+          recordType: AUDIT_RECORD_TYPES.complianceDocument,
+          recordId: documentId,
+          before: unchanged,
+          after: unchanged,
+          metadata: { outcome: 'ALREADY_APPROVED' },
+        });
+
+        return unchanged;
       }
       if (
         currentVersion.status !== ComplianceDocumentStatus.DRAFT &&

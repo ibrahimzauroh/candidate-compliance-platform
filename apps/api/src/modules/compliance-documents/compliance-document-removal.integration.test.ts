@@ -393,6 +393,22 @@ describe('DELETE /api/v1/documents/:documentId retention semantics', () => {
     ).not.toContain(ids.documents.target);
     expect(version.body).toEqual(documentNotFoundProblem);
     expect(approval.body).toEqual(documentNotFoundProblem);
+    await expect(
+      adminPrisma.auditEvent.count({
+        where: {
+          action: 'document:approve',
+          recordId: ids.documents.target,
+        },
+      }),
+    ).resolves.toBe(0);
+    await expect(
+      adminPrisma.idempotencyRecord.count({
+        where: {
+          operation: 'document:approve',
+          key: 'phase2e-document-approve',
+        },
+      }),
+    ).resolves.toBe(0);
     expect(correction.body).toEqual(documentNotFoundProblem);
     expect(verificationCreate.body).toEqual(documentNotFoundProblem);
     expect(verificationGet.body).toEqual(verificationNotFoundProblem);

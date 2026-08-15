@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createApp } from '../../app.js';
 import { loadEnvironment } from '../../config/load-environment.js';
+import { canonicalHash } from '../../infrastructure/crypto/canonical-hash.js';
 import { AUDIT_ACTIONS } from '../audit/audit.service.js';
 
 loadEnvironment();
@@ -35,6 +36,7 @@ const ids = {
     approved: '55000000-0000-4000-8000-000000000003',
     secondDraft: '55000000-0000-4000-8000-000000000004',
     khaleel: '50000000-0000-4000-8000-000000000002',
+    nonexistent: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
   },
   versions: {
     draft: '65000000-0000-4000-8000-000000000001',
@@ -272,15 +274,46 @@ describe('approved compliance-document lifecycle', () => {
     expect(approval.body).toEqual(forbiddenProblem);
     expect(correction.status).toBe(403);
     expect(correction.body).toEqual(forbiddenProblem);
+    await expect(
+      adminPrisma.auditEvent.count({
+        where: {
+          action: {
+            in: [AUDIT_ACTIONS.documentApprove, AUDIT_ACTIONS.documentCorrect],
+          },
+          recordId: { in: [ids.documents.draft, ids.documents.approved] },
+        },
+      }),
+    ).resolves.toBe(0);
+    await expect(
+      adminPrisma.idempotencyRecord.count({
+        where: {
+          key: {
+            in: ['phase3b-forbidden-approve', 'phase3b-forbidden-correct'],
+          },
+        },
+      }),
+    ).resolves.toBe(0);
   });
 
   it('hides cross-tenant documents from approval and correction', async () => {
-    const [approval, correction] = await Promise.all([
+    const approvalAuditBefore = await adminPrisma.auditEvent.count({
+      where: {
+        action: AUDIT_ACTIONS.documentApprove,
+        recordId: ids.documents.khaleel,
+      },
+    });
+    const [approval, missingApproval, correction] = await Promise.all([
       lifecycleRequest(
         'approve',
         ids.documents.khaleel,
         ids.users.compliance,
         'phase3b-cross-tenant-approve',
+      ).send({}),
+      lifecycleRequest(
+        'approve',
+        ids.documents.nonexistent,
+        ids.users.compliance,
+        'phase3b-missing-approve',
       ).send({}),
       lifecycleRequest(
         'corrections',
@@ -292,8 +325,39 @@ describe('approved compliance-document lifecycle', () => {
 
     expect(approval.status).toBe(404);
     expect(approval.body).toEqual(notFoundProblem);
+    expect(missingApproval.status).toBe(404);
+    expect(missingApproval.body).toEqual(notFoundProblem);
     expect(correction.status).toBe(404);
     expect(correction.body).toEqual(notFoundProblem);
+    await expect(
+      adminPrisma.auditEvent.count({
+        where: {
+          action: AUDIT_ACTIONS.documentApprove,
+          recordId: ids.documents.khaleel,
+        },
+      }),
+    ).resolves.toBe(approvalAuditBefore);
+    await expect(
+      adminPrisma.auditEvent.count({
+        where: {
+          action: AUDIT_ACTIONS.documentApprove,
+          recordId: ids.documents.nonexistent,
+        },
+      }),
+    ).resolves.toBe(0);
+    await expect(
+      adminPrisma.idempotencyRecord.count({
+        where: {
+          key: {
+            in: [
+              'phase3b-cross-tenant-approve',
+              'phase3b-missing-approve',
+              'phase3b-cross-tenant-correct',
+            ],
+          },
+        },
+      }),
+    ).resolves.toBe(0);
   });
 
   it('corrects an approved version by superseding it with one new DRAFT', async () => {
@@ -389,7 +453,7 @@ describe('approved compliance-document lifecycle', () => {
     ).resolves.toBe(0);
   });
 
-  it('replays approval and treats an already approved current version as a no-op', async () => {
+  it('distinguishes same-key replay from a new-key semantic re-approval', async () => {
     const first = await lifecycleRequest(
       'approve',
       ids.documents.draft,
@@ -402,26 +466,206 @@ describe('approved compliance-document lifecycle', () => {
       ids.users.compliance,
       'phase3b-approve-replay',
     ).send({});
+    const afterFirst = await adminPrisma.complianceDocument.findUniqueOrThrow({
+      where: { id: ids.documents.draft },
+      include: { versions: true },
+    });
+    const auditCountAfterReplay = await adminPrisma.auditEvent.count({
+      where: {
+        recordId: ids.documents.draft,
+        action: AUDIT_ACTIONS.documentApprove,
+      },
+    });
     const semanticRetry = await lifecycleRequest(
       'approve',
       ids.documents.draft,
       ids.users.compliance,
       'phase3b-approve-second-key',
     ).send({});
+    const semanticReplay = await lifecycleRequest(
+      'approve',
+      ids.documents.draft,
+      ids.users.compliance,
+      'phase3b-approve-second-key',
+    ).send({});
+    const afterSemantic =
+      await adminPrisma.complianceDocument.findUniqueOrThrow({
+        where: { id: ids.documents.draft },
+        include: { versions: true },
+      });
+    const audits = await adminPrisma.auditEvent.findMany({
+      where: {
+        recordId: ids.documents.draft,
+        action: AUDIT_ACTIONS.documentApprove,
+      },
+    });
+    const semanticAudit = audits.find(
+      (event) =>
+        (event.metadata as { outcome?: string }).outcome === 'ALREADY_APPROVED',
+    );
+    const idempotencyRecords = await adminPrisma.idempotencyRecord.findMany({
+      where: {
+        operation: 'document:approve',
+        key: {
+          in: ['phase3b-approve-replay', 'phase3b-approve-second-key'],
+        },
+      },
+    });
 
     expect(first.status).toBe(200);
     expect(replay.status).toBe(200);
     expect(semanticRetry.status).toBe(200);
+    expect(semanticReplay.status).toBe(200);
     expect(replay.body).toEqual(first.body);
     expect(semanticRetry.body).toEqual(first.body);
+    expect(semanticReplay.body).toEqual(semanticRetry.body);
+    expect(auditCountAfterReplay).toBe(1);
+    expect(afterSemantic).toEqual(afterFirst);
+    expect(audits).toHaveLength(2);
+    expect(
+      audits.filter(
+        (event) => Object.keys(event.metadata as object).length === 0,
+      ),
+    ).toHaveLength(1);
+    expect(semanticAudit?.metadata).toEqual({ outcome: 'ALREADY_APPROVED' });
+    expect(semanticAudit?.beforeHash).toBe(semanticAudit?.afterHash);
+    expect(semanticAudit?.afterHash).toBe(canonicalHash(first.body));
+    expect(idempotencyRecords).toHaveLength(2);
+    expect(
+      idempotencyRecords.every((record) => record.responseStatus === 200),
+    ).toBe(true);
+  });
+
+  it('returns 409 for conflicting approval-key reuse without another audit', async () => {
+    const key = 'phase3b-approve-conflict';
+    const first = await lifecycleRequest(
+      'approve',
+      ids.documents.approved,
+      ids.users.compliance,
+      key,
+    ).send({});
+    const conflict = await lifecycleRequest(
+      'approve',
+      ids.documents.secondDraft,
+      ids.users.compliance,
+      key,
+    ).send({});
+
+    expect(first.status).toBe(200);
+    expect(conflict.status).toBe(409);
+    expect(conflict.body).toEqual(idempotencyConflictProblem);
     await expect(
       adminPrisma.auditEvent.count({
         where: {
-          recordId: ids.documents.draft,
           action: AUDIT_ACTIONS.documentApprove,
+          recordId: ids.documents.approved,
         },
       }),
     ).resolves.toBe(1);
+    await expect(
+      adminPrisma.auditEvent.count({
+        where: {
+          action: AUDIT_ACTIONS.documentApprove,
+          recordId: ids.documents.secondDraft,
+        },
+      }),
+    ).resolves.toBe(0);
+    await expect(
+      adminPrisma.complianceDocumentVersion.findUniqueOrThrow({
+        where: { id: ids.versions.secondDraft },
+      }),
+    ).resolves.toMatchObject({ status: ComplianceDocumentStatus.DRAFT });
+  });
+
+  it('deduplicates concurrent same-key semantic re-approval', async () => {
+    const before = await adminPrisma.complianceDocument.findUniqueOrThrow({
+      where: { id: ids.documents.approved },
+      include: { versions: true },
+    });
+    const key = 'phase3b-approved-concurrent-same-key';
+    const responses = await Promise.all([
+      lifecycleRequest(
+        'approve',
+        ids.documents.approved,
+        ids.users.compliance,
+        key,
+      ).send({}),
+      lifecycleRequest(
+        'approve',
+        ids.documents.approved,
+        ids.users.compliance,
+        key,
+      ).send({}),
+    ]);
+    const after = await adminPrisma.complianceDocument.findUniqueOrThrow({
+      where: { id: ids.documents.approved },
+      include: { versions: true },
+    });
+
+    expect(responses.map(({ status }) => status)).toEqual([200, 200]);
+    expect(responses[1]?.body).toEqual(responses[0]?.body);
+    expect(after).toEqual(before);
+    await expect(
+      adminPrisma.auditEvent.count({
+        where: {
+          action: AUDIT_ACTIONS.documentApprove,
+          recordId: ids.documents.approved,
+        },
+      }),
+    ).resolves.toBe(1);
+    await expect(
+      adminPrisma.idempotencyRecord.count({
+        where: { operation: 'document:approve', key },
+      }),
+    ).resolves.toBe(1);
+  });
+
+  it('audits each concurrent distinct-key semantic re-approval', async () => {
+    const before = await adminPrisma.complianceDocument.findUniqueOrThrow({
+      where: { id: ids.documents.approved },
+      include: { versions: true },
+    });
+    const keys = [
+      'phase3b-approved-concurrent-key-one',
+      'phase3b-approved-concurrent-key-two',
+    ];
+    const responses = await Promise.all(
+      keys.map((key) =>
+        lifecycleRequest(
+          'approve',
+          ids.documents.approved,
+          ids.users.compliance,
+          key,
+        ).send({}),
+      ),
+    );
+    const after = await adminPrisma.complianceDocument.findUniqueOrThrow({
+      where: { id: ids.documents.approved },
+      include: { versions: true },
+    });
+    const audits = await adminPrisma.auditEvent.findMany({
+      where: {
+        action: AUDIT_ACTIONS.documentApprove,
+        recordId: ids.documents.approved,
+      },
+    });
+
+    expect(responses.map(({ status }) => status)).toEqual([200, 200]);
+    expect(after).toEqual(before);
+    expect(audits).toHaveLength(2);
+    expect(
+      audits.every(
+        (event) =>
+          event.beforeHash === event.afterHash &&
+          (event.metadata as { outcome?: string }).outcome ===
+            'ALREADY_APPROVED',
+      ),
+    ).toBe(true);
+    await expect(
+      adminPrisma.idempotencyRecord.count({
+        where: { operation: 'document:approve', key: { in: keys } },
+      }),
+    ).resolves.toBe(2);
   });
 
   it('replays concurrent identical corrections without duplicate versions or audit events', async () => {

@@ -454,7 +454,7 @@ Relevant errors:
 
 Approves the logical document's current version. Requires `document:approve` and `Idempotency-Key`. The request body must be an empty JSON object.
 
-A current `DRAFT` or `PENDING_REVIEW` version transitions to `APPROVED`. Repeating approval when the current version is already approved is a semantic no-op that returns the same public state without another mutation audit event. A `REJECTED` current version cannot be approved through this operation.
+A current `DRAFT` or `PENDING_REVIEW` version transitions to `APPROVED`. An exact same-key retry is a transport replay that returns the stored response without another audit event. A new-key approval when the current version is already approved is a newly executed successful semantic no-op: it returns the same public state and appends one approval event with equal before/after hashes and bounded `ALREADY_APPROVED` outcome metadata, without updating the document or version. A `REJECTED` current version cannot be approved through this operation.
 
 Success: `200 OK` with the logical document and its approved current version.
 
