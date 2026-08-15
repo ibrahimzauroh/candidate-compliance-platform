@@ -1,4 +1,7 @@
-import type { CreateComplianceDocumentRequest } from '@candidate-compliance/contracts';
+import type {
+  CorrectComplianceDocumentRequest,
+  CreateComplianceDocumentRequest,
+} from '@candidate-compliance/contracts';
 import { createHmac } from 'node:crypto';
 
 interface ComplianceDocumentAttempt {
@@ -35,4 +38,44 @@ export function deriveComplianceDocumentIdempotencyKey({
     .digest('hex');
 
   return `document:create:${fingerprint}`;
+}
+
+interface ComplianceDocumentLifecycleAttempt {
+  actorId: string;
+  attemptId: string;
+  documentId: string;
+  input?: CorrectComplianceDocumentRequest;
+  operation: 'approve' | 'correct';
+  sessionCredential: string;
+  tenantId: string;
+}
+
+export function deriveComplianceDocumentLifecycleIdempotencyKey({
+  actorId,
+  attemptId,
+  documentId,
+  input,
+  operation,
+  sessionCredential,
+  tenantId,
+}: ComplianceDocumentLifecycleAttempt): string {
+  const fingerprint = createHmac('sha256', sessionCredential)
+    .update(
+      JSON.stringify({
+        actorId,
+        attemptId,
+        documentId,
+        input: input
+          ? {
+              expiryDate: input.expiryDate,
+              issueDate: input.issueDate,
+            }
+          : {},
+        operation,
+        tenantId,
+      }),
+    )
+    .digest('hex');
+
+  return `document:${operation}:${fingerprint}`;
 }

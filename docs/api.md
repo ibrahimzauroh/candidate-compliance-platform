@@ -25,7 +25,7 @@ All mutation routes additionally require:
 Idempotency-Key: <opaque-client-generated-value>
 ```
 
-Direct API clients provide this opaque key. For Candidate and compliance-document creation through the web application, the browser supplies only a logical attempt nonce and the same-origin Next.js server derives the raw API key from authenticated session, actor, validated tenant, target aggregate, attempt, and canonical payload context. The browser neither chooses nor receives that raw key.
+Direct API clients provide this opaque key. For Candidate creation and compliance-document creation, approval, and correction through the web application, the browser supplies only a logical attempt nonce and the same-origin Next.js server derives the raw API key from authenticated session, actor, validated tenant, target aggregate, operation, attempt, and canonical payload context. The browser neither chooses nor receives that raw key.
 
 Keys are trimmed, must contain 1 to 200 letters, digits, or supported opaque characters (`._~:/+-`), and are scoped to the validated tenant membership and operation. Repeating the same operation and validated input with the same key returns the stored response and original success status without executing the write again. Reusing that scoped key for materially different input returns `409 Conflict`:
 

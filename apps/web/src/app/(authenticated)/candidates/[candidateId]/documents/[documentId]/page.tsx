@@ -1,8 +1,10 @@
 import {
   candidateIdParamsSchema,
   complianceDocumentSchema,
+  complianceDocumentVersionHistoryResponseSchema,
   documentIdParamsSchema,
   type ComplianceDocument,
+  type ComplianceDocumentVersionHistoryResponse,
 } from '@candidate-compliance/contracts';
 import type { Metadata } from 'next';
 import Link from 'next/link';
@@ -97,10 +99,37 @@ export default async function DocumentDetailPage({
     notFound();
   }
 
+  let history: ComplianceDocumentVersionHistoryResponse | undefined;
+  let historyError: string | null = null;
+
+  try {
+    history = await requestApi({
+      path: `/api/v1/documents/${documentParams.data.documentId}/versions`,
+      schema: complianceDocumentVersionHistoryResponseSchema,
+      token,
+      tenantId: session.tenantContext.tenantId,
+    });
+  } catch (error) {
+    if (error instanceof ApiRequestError && error.status === 401) {
+      redirect('/sign-in?reason=session');
+    }
+
+    if (error instanceof ApiRequestError && error.status === 404) {
+      notFound();
+    }
+
+    historyError =
+      error instanceof ApiRequestError && error.status === 403
+        ? 'You do not have permission to view version history in this tenant.'
+        : 'Version history could not be loaded. Reload the page to try again.';
+  }
+
   return (
     <ComplianceDocumentDetail
       candidateId={candidateParams.data.candidateId}
       document={document}
+      history={history}
+      historyError={historyError}
     />
   );
 }

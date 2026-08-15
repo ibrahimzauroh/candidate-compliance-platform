@@ -939,6 +939,106 @@ h2 {
   color: var(--amber-200);
 }
 
+.document-lifecycle,
+.version-history,
+.correction-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.document-lifecycle {
+  align-items: start;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  background: var(--navy-900);
+}
+
+.document-lifecycle > .button {
+  width: fit-content;
+}
+
+.approval-confirmation,
+.correction-form {
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  background: var(--navy-800);
+}
+
+.approval-confirmation h3,
+.approval-confirmation p:last-of-type,
+.correction-form h3,
+.correction-form > div:first-child p {
+  margin-bottom: 0;
+}
+
+.approval-confirmation > p,
+.correction-form > div:first-child p {
+  color: var(--text-secondary);
+}
+
+.version-history__list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.version-record {
+  display: grid;
+  gap: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1.1rem 1.25rem;
+  background: var(--navy-900);
+}
+
+.version-record--current {
+  border-color: rgb(245 159 10 / 65%);
+  box-shadow: inset 3px 0 var(--amber-500);
+}
+
+.version-record__heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.version-record__heading h3,
+.version-record__heading p,
+.version-record__integrity {
+  margin-bottom: 0;
+}
+
+.version-record__heading p,
+.version-record__integrity {
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+}
+
+.version-record__metadata {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 0;
+}
+
+.version-record__metadata dt {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.version-record__metadata dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .pagination {
   display: flex;
   align-items: center;
@@ -1216,6 +1316,16 @@ h2 {
   .section-heading {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .version-record__metadata {
+    grid-template-columns: 1fr;
+  }
+
+  .document-lifecycle > .button,
+  .approval-confirmation .button,
+  .correction-form .button {
+    width: 100%;
   }
 
   .pagination {

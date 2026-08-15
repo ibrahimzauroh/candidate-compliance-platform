@@ -1,4 +1,4 @@
-# Backend manual testing
+# Manual testing
 
 ## Before running the smoke test
 
@@ -164,3 +164,19 @@ The API uses an ephemeral loopback listener and the verification processor is
 invoked in-process, so no detached API or worker process is left behind. The
 listener and all database clients are registered for cleanup on success and
 failure.
+
+## Frontend document lifecycle check
+
+When the documented local API, web application, migrations, and seed fixtures
+are available, an examiner can sign in, select an authorised tenant, open a
+Candidate and then open one of its compliance documents. The document view
+shows the server-provided version history and identifies the current version in
+text. Eligible draft or pending-review versions offer an explicit approval
+confirmation. An approved current version is read-only and offers a correction
+form; a successful correction returns a new current `DRAFT` while the approved
+version remains in history.
+
+These controls use the validated server tenant context and server-derived
+idempotency keys. They do not make client state authoritative. Rendered browser,
+320px viewport, and assistive-technology checks remain manual because no
+`pnpm e2e:web` command exists yet.
