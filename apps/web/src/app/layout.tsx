@@ -4,8 +4,11 @@ import type { ReactNode } from 'react';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Candidate Compliance Platform',
-  description: 'Candidate compliance operations',
+  title: {
+    default: 'Candidate Compliance',
+    template: '%s | Candidate Compliance',
+  },
+  description: 'Secure, tenant-scoped candidate compliance operations.',
 };
 
 export default function RootLayout({
@@ -13,7 +16,12 @@ export default function RootLayout({
 }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <a className="skip-link" href="#main-content">
+          Skip to main content
+        </a>
+        {children}
+      </body>
     </html>
   );
 }
