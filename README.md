@@ -365,8 +365,9 @@ No production secrets are stored in the repository. The checked-in database and 
 
 ## AI assistant usage
 
-AI was used for implementation acceleration, refactoring suggestions, test generation ideas, and documentation review. Architecture, tenancy strategy, authorisation model, data model, security boundaries, trade-offs, and final review are decided and validated by the engineer. Generated code is reviewed, changed where necessary, and tested before inclusion.
+I used an AI assistants throughout the project to help accelerate implementation, review code, suggest test cases, identify edge cases, and keep the documentation aligned with the implementation. I also used them as a second pair of eyes when reviewing areas such as tenant isolation, authorisation, idempotency and the frontend workflows.
 
+I made the architecture and security decisions myself and reviewed the generated changes before including them. I also validated the implementation through the project's tests, type checking, linting and build checks rather than treating AI-generated output as correct by default.
 
 ## Known limitations
 
