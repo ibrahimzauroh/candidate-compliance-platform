@@ -117,6 +117,18 @@ const idempotencyConflictProblem = {
 
 let keySequence = 0;
 
+function countFixtureExtractions() {
+  return adminPrisma.cvExtraction.count({
+    where: { candidateId: { in: Object.values(ids.candidates) } },
+  });
+}
+
+function countFixtureProfiles() {
+  return adminPrisma.candidateProfile.count({
+    where: { candidateId: { in: Object.values(ids.candidates) } },
+  });
+}
+
 function nextKey(label: string): string {
   keySequence += 1;
   return `phase5-${label}-${keySequence}`;
@@ -342,7 +354,7 @@ describe('governed CV upload and proposal creation', () => {
       confirmedOutput: null,
       decidedAt: null,
     });
-    await expect(adminPrisma.candidateProfile.count()).resolves.toBe(0);
+    await expect(countFixtureProfiles()).resolves.toBe(0);
   });
 
   it('extracts a PDF in memory and creates a PROPOSED result', async () => {
@@ -395,7 +407,7 @@ describe('governed CV upload and proposal creation', () => {
       expect(response.status).toBe(400);
       expect(response.body).toEqual(invalidUploadProblem);
     }
-    await expect(adminPrisma.cvExtraction.count()).resolves.toBe(0);
+    await expect(countFixtureExtractions()).resolves.toBe(0);
   });
 
   it('requires an Idempotency-Key for extraction writes', async () => {
@@ -409,7 +421,7 @@ describe('governed CV upload and proposal creation', () => {
 
     expect(response.status).toBe(400);
     expect(response.body.detail).toBe('Idempotency-Key header is required.');
-    await expect(adminPrisma.cvExtraction.count()).resolves.toBe(0);
+    await expect(countFixtureExtractions()).resolves.toBe(0);
   });
 
   it('rejects malformed output and provider failures without persisting details', async () => {
@@ -438,7 +450,7 @@ describe('governed CV upload and proposal creation', () => {
       'SECRET_PROVIDER_EXCEPTION',
     );
     expect(failed.body.detail).toBe('CV extraction could not be completed.');
-    await expect(adminPrisma.cvExtraction.count()).resolves.toBe(0);
+    await expect(countFixtureExtractions()).resolves.toBe(0);
     await expect(
       adminPrisma.idempotencyRecord.count({
         where: { key: { startsWith: 'phase5-' } },
@@ -471,7 +483,7 @@ describe('governed CV upload and proposal creation', () => {
     expect(first.status).toBe(201);
     expect(second.status).toBe(201);
     expect(second.body).toEqual(first.body);
-    await expect(adminPrisma.cvExtraction.count()).resolves.toBe(1);
+    await expect(countFixtureExtractions()).resolves.toBe(1);
     await expect(
       adminPrisma.auditEvent.count({
         where: { action: 'ai:extract', recordId: first.body.id },
@@ -571,7 +583,7 @@ describe('human-governed proposal decisions', () => {
 
     expect(proposal.status).toBe(201);
     expect(after).toEqual(before);
-    await expect(adminPrisma.candidateProfile.count()).resolves.toBe(0);
+    await expect(countFixtureProfiles()).resolves.toBe(0);
     expect(stored).toEqual([{ contains_raw_marker: false }]);
   });
 
@@ -649,7 +661,7 @@ describe('human-governed proposal decisions', () => {
 
     expect(response.status).toBe(400);
     expect(extraction.status).toBe('PROPOSED');
-    await expect(adminPrisma.candidateProfile.count()).resolves.toBe(0);
+    await expect(countFixtureProfiles()).resolves.toBe(0);
   });
 
   it('requires an Idempotency-Key for confirmation and rejection decisions', async () => {
@@ -702,7 +714,7 @@ describe('human-governed proposal decisions', () => {
     expect(secondDecision.status).toBe(409);
     expect(secondDecision.body).toEqual(decisionConflictProblem);
     expect(after).toEqual(before);
-    await expect(adminPrisma.candidateProfile.count()).resolves.toBe(0);
+    await expect(countFixtureProfiles()).resolves.toBe(0);
     await expect(
       adminPrisma.auditEvent.count({
         where: { recordId: proposal.body.id, action: 'ai:reject' },
@@ -721,7 +733,7 @@ describe('human-governed proposal decisions', () => {
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
     expect(second.body).toEqual(first.body);
-    await expect(adminPrisma.candidateProfile.count()).resolves.toBe(1);
+    await expect(countFixtureProfiles()).resolves.toBe(1);
     await expect(
       adminPrisma.auditEvent.count({
         where: { recordId: proposal.body.id, action: 'ai:confirm' },

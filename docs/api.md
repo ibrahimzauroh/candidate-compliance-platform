@@ -1,6 +1,6 @@
 # API Reference
 
-This document describes the currently implemented Candidate, ComplianceDocument, verification, and governed CV extraction APIs. It is a concise developer reference, not a replacement for the planned OpenAPI document.
+This document is a concise developer guide to the implemented APIs. The canonical machine-readable contract is [openapi.json](openapi.json), which is validated as OpenAPI 3.1 and checked bidirectionally against the registered Express route/method inventory by `pnpm openapi:check`.
 
 ## Protected-route headers
 
@@ -45,7 +45,7 @@ Protected routes can return RFC 9457-style Problem Details with content type `ap
 
 ## Audit behaviour
 
-Successful candidate and compliance-document creates, updates, version creation, approval, correction, retrievals, list results, expiring-document results, verification transitions, and governed CV proposal decisions append tenant-scoped audit events. Creates have a null before hash and a canonical SHA-256 after hash. Updates and decisions hash the before and after public state, while reads have a null before hash and hash the returned state.
+Successful candidate and compliance-document creates, updates, retention-safe removals, version creation, approval, correction, retrievals, list results, expiring-document results, verification transitions, and governed CV proposal decisions append tenant-scoped audit events. Creates have a null before hash and a canonical SHA-256 after hash. Updates, removals, and decisions hash the before and after public state, while reads have a null before hash and hash the returned state. A removal after-state adds the server-owned removal timestamp without storing raw fields in audit metadata.
 
 Mutation events are written in the same tenant transaction as the domain mutation and idempotency result. Failed operations roll back without an event, and replaying an already committed idempotent mutation does not append a duplicate. List endpoints append one event per returned record, bounded by `pageSize <= 100`; an empty page has no record to audit and therefore appends no event.
 
@@ -195,9 +195,23 @@ Relevant errors:
 - `409 Conflict` — the updated email already belongs to another candidate in the selected tenant.
 - `409 Conflict` — the scoped idempotency key was already used for different input.
 
-## Deletion status
+## Remove a candidate
 
-Candidate deletion is not implemented. The current surface is create, list, retrieve, and update, so Phase 2 is not yet fully aligned with the tenant-scoped CRUD requirement. The deletion policy, permissions, and behaviour require a deliberate decision after reviewing ComplianceDocument lifecycle and audit-history implications.
+`DELETE /api/v1/candidates/:candidateId`
+
+Requires `candidate:remove` and `Idempotency-Key`. Success is `204 No Content` with no response body. The operation marks the logical Candidate inactive in the same tenant transaction as one `candidate:remove` audit event and the stored idempotency result. It does not physically delete or rewrite the Candidate's documents, versions, verification requests, outbox history, CV extractions, confirmed profile, or audit evidence.
+
+Removed Candidates are excluded from Candidate reads and lists and fail closed for update, document, verification, CV extraction, profile, confirmation, and rejection paths. The database query excludes inactive rows before pagination. Restoration is not available through the runtime API, and tenant-scoped email uniqueness continues to include the retained inactive row.
+
+Relevant errors:
+
+- `400 Bad Request` — `candidateId` or `Idempotency-Key` is invalid.
+- `401 Unauthorized` — authentication failed.
+- `403 Forbidden` — tenant context is unavailable or `candidate:remove` is denied.
+- `404 Not Found` — the Candidate is missing, belongs to another tenant, or is already inactive.
+- `409 Conflict` — the scoped idempotency key was already used for a different Candidate.
+
+An exact same-key retry authoritatively replays `204` without another update or audit event. A failed removal commits neither audit nor idempotency state.
 
 ## Compliance document representation
 
@@ -440,7 +454,7 @@ Relevant errors:
 
 Approves the logical document's current version. Requires `document:approve` and `Idempotency-Key`. The request body must be an empty JSON object.
 
-A current `DRAFT` or `PENDING_REVIEW` version transitions to `APPROVED`. Repeating approval when the current version is already approved is a semantic no-op that returns the same public state without another mutation audit event. A `REJECTED` current version cannot be approved through this operation.
+A current `DRAFT` or `PENDING_REVIEW` version transitions to `APPROVED`. An exact same-key retry is a transport replay that returns the stored response without another audit event. A new-key approval when the current version is already approved is a newly executed successful semantic no-op: it returns the same public state and appends one approval event with equal before/after hashes and bounded `ALREADY_APPROVED` outcome metadata, without updating the document or version. A `REJECTED` current version cannot be approved through this operation.
 
 Success: `200 OK` with the logical document and its approved current version.
 
@@ -480,6 +494,24 @@ Relevant errors:
 - `404 Not Found` — the document is nonexistent or unavailable in the selected tenant.
 - `409 Conflict` — the current version is not approved.
 - `409 Conflict` — the scoped idempotency key was already used for different input.
+
+## Remove a compliance document
+
+`DELETE /api/v1/documents/:documentId`
+
+Requires `document:remove` and `Idempotency-Key`. Success is `204 No Content` with no response body. The operation marks only the stable logical document inactive in the same tenant transaction as one `document:remove` audit event and the idempotency result. It does not edit or delete any version, supersession link, verification request, outbox row, or audit event; approved version bytes and the current-version pointer remain unchanged.
+
+Removed documents are excluded from retrieve, Candidate document-list, and expiring-within-30-days results. Version creation, approval, correction, new verification requests, and verification-status retrieval fail closed. Historical verification and outbox rows remain in PostgreSQL for evidence, but the public verification API no longer exposes them. Restoration is not available through the runtime API.
+
+Relevant errors:
+
+- `400 Bad Request` — `documentId` or `Idempotency-Key` is invalid.
+- `401 Unauthorized` — authentication failed.
+- `403 Forbidden` — tenant context is unavailable or `document:remove` is denied.
+- `404 Not Found` — the document is missing, belongs to another tenant, has an inactive parent Candidate, or is already inactive.
+- `409 Conflict` — the scoped idempotency key was already used for a different document.
+
+An exact same-key retry authoritatively replays `204` without another update or audit event. A failed removal commits neither audit nor idempotency state.
 
 ## Request Right-to-Work verification
 
@@ -522,7 +554,7 @@ An identical idempotent retry replays the original `202` response without creati
 
 `GET /api/v1/verifications/:verificationRequestId`
 
-Returns one verification request visible to the validated tenant. Requires `verification:read`. A successful read appends a tenant-scoped sensitive-read audit event.
+Returns one verification request visible to the validated tenant. Requires `verification:read`. A successful read appends a tenant-scoped sensitive-read audit event. A retained request whose logical document or parent Candidate has been removed returns the same neutral `404` as a missing or cross-tenant request.
 
 Success: `200 OK` with the verification representation above. Status follows:
 
@@ -616,4 +648,4 @@ The database restricts runtime updates to decision/profile columns, applies forc
 
 ## Current versioning limitations
 
-Earlier version rows are preserved and no destructive compliance-data update endpoint exists. The restricted runtime role can update only the version status column, and PostgreSQL prevents it from changing approved rows or applying unsupported approval transitions. Approval reasons/comments and a separate review-submission operation are not modelled; `PENDING_REVIEW` remains an allowed approval source for future workflows. ComplianceDocument deletion, audit browsing/export, and OpenAPI remain deferred.
+Earlier version rows are preserved and no destructive compliance-data update endpoint exists. Retention-safe `DELETE` marks only a logical aggregate inactive and does not erase evidence. The restricted runtime role can update only the explicitly granted aggregate, version, workflow, and AI columns; PostgreSQL prevents restoration, physical deletion, changes to approved rows, and unsupported approval transitions. Approval reasons/comments and a separate review-submission operation are not modelled; `PENDING_REVIEW` remains an allowed approval source for future workflows. Privileged retention/erasure operations and audit browsing/export remain deferred.

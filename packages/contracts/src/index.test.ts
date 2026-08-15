@@ -20,6 +20,7 @@ import {
   healthResponseSchema,
   idempotencyKeySchema,
   loginRequestSchema,
+  noContentResponseSchema,
   problemDetailsSchema,
   requestVerificationRequestSchema,
   tenantContextSchema,
@@ -27,6 +28,13 @@ import {
   verificationRequestIdParamsSchema,
   verificationRequestSchema,
 } from './index.js';
+
+describe('noContentResponseSchema', () => {
+  it('accepts only the internal representation of an empty response', () => {
+    expect(noContentResponseSchema.parse({})).toEqual({});
+    expect(() => noContentResponseSchema.parse({ unexpected: true })).toThrow();
+  });
+});
 
 describe('idempotencyKeySchema', () => {
   it('trims and accepts bounded opaque keys', () => {

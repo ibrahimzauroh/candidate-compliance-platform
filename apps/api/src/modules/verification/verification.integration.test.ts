@@ -55,6 +55,20 @@ const ids = {
 const documentIds = Object.values(ids.documents);
 const versionIds = Object.values(ids.versions);
 
+function countFixtureRequests() {
+  return adminPrisma.verificationRequest.count({
+    where: { documentId: { in: documentIds } },
+  });
+}
+
+function countFixtureOutboxEvents() {
+  return adminPrisma.outboxEvent.count({
+    where: {
+      verificationRequest: { documentId: { in: documentIds } },
+    },
+  });
+}
+
 const forbiddenProblem = {
   type: 'about:blank',
   title: 'Forbidden',
@@ -333,7 +347,7 @@ describe('Right-to-Work verification workflow', () => {
 
     expect(response.status).toBe(403);
     expect(response.body).toEqual(forbiddenProblem);
-    await expect(adminPrisma.verificationRequest.count()).resolves.toBe(0);
+    await expect(countFixtureRequests()).resolves.toBe(0);
   });
 
   it('blocks cross-tenant submission and status access', async () => {
@@ -373,8 +387,8 @@ describe('Right-to-Work verification workflow', () => {
     expect(first.status).toBe(202);
     expect(replay.status).toBe(202);
     expect(replay.body).toEqual(first.body);
-    await expect(adminPrisma.verificationRequest.count()).resolves.toBe(1);
-    await expect(adminPrisma.outboxEvent.count()).resolves.toBe(1);
+    await expect(countFixtureRequests()).resolves.toBe(1);
+    await expect(countFixtureOutboxEvents()).resolves.toBe(1);
     await expect(
       adminPrisma.auditEvent.count({
         where: {
@@ -517,8 +531,8 @@ describe('Right-to-Work verification workflow', () => {
     expect(first.outcome).toBe('retry_scheduled');
     expect(second.outcome).toBe('verified');
     expect(calls).toBe(2);
-    await expect(adminPrisma.verificationRequest.count()).resolves.toBe(1);
-    await expect(adminPrisma.outboxEvent.count()).resolves.toBe(1);
+    await expect(countFixtureRequests()).resolves.toBe(1);
+    await expect(countFixtureOutboxEvents()).resolves.toBe(1);
     await expect(
       adminPrisma.auditEvent.count({
         where: {

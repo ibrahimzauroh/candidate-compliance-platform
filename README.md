@@ -125,11 +125,12 @@ POST   /api/v1/candidates
 GET    /api/v1/candidates
 GET    /api/v1/candidates/:candidateId
 PATCH  /api/v1/candidates/:candidateId
+DELETE /api/v1/candidates/:candidateId
 ```
 
 Lists accept bounded `page` and `pageSize` pagination plus optional `search`, exact `email`, and partial `roleAppliedFor` filters. Candidate ownership always comes from the validated tenant context; `tenantId` is neither accepted in write bodies nor exposed in candidate responses. An identical mutation retry with the same idempotency key replays its original response, while reuse for different input returns `409 Conflict`.
 
-See [docs/api.md](docs/api.md) for the current developer-facing Candidate API reference. The implemented Candidate surface is create, list, retrieve, and update. Candidate deletion remains outstanding, and Phase 2 is not fully aligned with the tenant-scoped CRUD requirement until its policy is decided after reviewing compliance-document lifecycle and audit-history implications.
+`DELETE` requires `candidate:remove` and performs retention-safe logical removal: it marks the Candidate inactive without deleting its row, documents, versions, verification history, CV extraction evidence, confirmed profile, or audit events. Removed Candidates are excluded in database queries and fail closed across normal Candidate, document, verification, and CV operations. Restoration is not exposed. See [docs/api.md](docs/api.md) for the current developer-facing Candidate API reference.
 
 ## ComplianceDocument API
 
@@ -143,9 +144,10 @@ GET   /api/v1/documents/expiring
 POST  /api/v1/documents/:documentId/versions
 POST  /api/v1/documents/:documentId/approve
 POST  /api/v1/documents/:documentId/corrections
+DELETE /api/v1/documents/:documentId
 ```
 
-New versions start as `DRAFT`; tenant ownership, creator membership, version number, status transitions, and current-version selection are server-controlled. A current `DRAFT` or `PENDING_REVIEW` version may be approved, while correcting a current `APPROVED` version creates a new `DRAFT` that supersedes it and atomically becomes current. The approved row is retained unchanged. All document mutations require an `Idempotency-Key`, use operation-specific permissions, and write their audit event transactionally. The expiring-documents route returns current versions expiring from today through day 30 for the validated tenant. See [docs/api.md](docs/api.md) for payloads, pagination, filters, responses, and lifecycle rules.
+New versions start as `DRAFT`; tenant ownership, creator membership, version number, status transitions, and current-version selection are server-controlled. A current `DRAFT` or `PENDING_REVIEW` version may be approved, while correcting a current `APPROVED` version creates a new `DRAFT` that supersedes it and atomically becomes current. The approved row is retained unchanged. Document `DELETE` requires `document:remove` and marks only the logical document inactive; every immutable version, correction chain, verification record, and audit event remains stored. Removed documents are excluded from reads, lists, expiry queries, lifecycle writes, and verification API access. All document mutations require an `Idempotency-Key`, use operation-specific permissions, and write their audit event transactionally. The expiring-documents route returns current versions expiring from today through day 30 for the validated tenant. See [docs/api.md](docs/api.md) for payloads, pagination, filters, responses, and lifecycle rules.
 
 ## Right-to-Work verification
 
@@ -156,7 +158,7 @@ POST  /api/v1/documents/:documentId/verifications
 GET   /api/v1/verifications/:verificationRequestId
 ```
 
-Submission requires `verification:request` and `Idempotency-Key`; status access requires `verification:read`. The request, outbox event, audit event, and idempotency response commit atomically with initial status `requested`. A separate worker moves the request through `pending` to `verified` or `failed`, using a deterministic local verifier and at most three attempts. Tenant-owned requests and outbox rows remain protected by explicit tenant scoping, restricted runtime privileges, and forced PostgreSQL RLS.
+Submission requires `verification:request` and `Idempotency-Key`; status access requires `verification:read`. The request, outbox event, audit event, and idempotency response commit atomically with initial status `requested`. A separate worker moves the request through `pending` to `verified` or `failed`, using a deterministic local verifier and at most three attempts. Retained verification history is no longer exposed by the API when its document or parent Candidate is removed. Tenant-owned requests and outbox rows remain protected by explicit tenant scoping, restricted runtime privileges, and forced PostgreSQL RLS.
 
 ## Governed CV extraction
 
@@ -175,7 +177,7 @@ Reading a proposal requires `ai:extract`; confirming or rejecting it requires `a
 
 ## Audit ledger
 
-Candidate and compliance-document creates, updates, version creation, retrievals, paginated lists, expiring-document results, verification creation/state transitions, and governed CV proposal decisions append tenant-scoped audit events. Verification status and CV proposal reads are audited as sensitive reads. Mutation events commit atomically with the domain write and idempotency record; an idempotent replay does not append another mutation event. Events store actor and membership identifiers, the affected record identity, and canonical SHA-256 before/after hashes rather than raw candidate, document, CV text, or provider state.
+Candidate and compliance-document creates, updates, retention-safe removals, version creation, retrievals, paginated lists, expiring-document results, verification creation/state transitions, and governed CV proposal decisions append tenant-scoped audit events. Removal hashes distinguish the active before-state from the retained state containing its removal timestamp. Verification status and CV proposal reads are audited as sensitive reads. Mutation events commit atomically with the domain write and idempotency record; an idempotent replay does not append another mutation event. Events store actor and membership identifiers, the affected record identity, and canonical SHA-256 before/after hashes rather than raw candidate, document, CV text, or provider state.
 
 List reads append one event for each record actually returned, bounded by the existing maximum page size of 100. Empty pages therefore create no record-level event. The restricted runtime role may only insert audit rows; forced RLS checks tenant ownership, and update/delete privileges are withheld. No audit browsing or export API is implemented.
 
@@ -215,9 +217,49 @@ pnpm test
 pnpm build
 ```
 
+### Backend end-to-end smoke test
+
+After configuring the disposable local PostgreSQL database and applying the
+committed migrations, run the primary backend HTTP journey with one command:
+
+```powershell
+$env:E2E_ALLOW_DATABASE_MUTATION = 'true'
+
+try {
+  corepack pnpm e2e:smoke
+
+  if ($LASTEXITCODE -ne 0) {
+    throw "E2E smoke test failed with exit code $LASTEXITCODE"
+  }
+}
+finally {
+  Remove-Item Env:E2E_ALLOW_DATABASE_MUTATION -ErrorAction SilentlyContinue
+}
+```
+
+The command refuses non-local or production-like database targets, prints only
+the redacted host and database name, starts the real Express application on an
+ephemeral loopback port, invokes the real verification processor, and cleans up
+its listener and database clients after success or failure. It uses unique data
+for each run; Candidate, document, workflow, CV, and audit rows are intentionally
+retained after logical removal. See [docs/manual-testing.md](docs/manual-testing.md)
+for the authoritative cross-platform prerequisites, coverage, and safety
+details.
+
+This is a backend smoke test, not a substitute for `pnpm test`. Frontend browser
+acceptance remains a separate activity.
+
 ## OpenAPI
 
-An OpenAPI 3 document will be completed in a later phase. The current API exposes the unversioned health check plus versioned login, authenticated identity, validated tenant context, Candidate, ComplianceDocument, verification, and governed CV extraction endpoints.
+The canonical OpenAPI 3.1 specification is [docs/openapi.json](docs/openapi.json). It documents the unversioned health check and every registered versioned authentication, tenant-context, Candidate, ComplianceDocument, verification, and governed CV extraction operation.
+
+Validate the specification and its exact synchronisation with the registered Express route/method inventory using:
+
+```bash
+pnpm openapi:check
+```
+
+The check performs standards-aware OpenAPI 3.1 validation and fails for missing or nonexistent routes, incorrect methods or operation IDs, duplicate operation IDs, or missing security, tenant, idempotency, response, upload, and retention-safe deletion declarations.
 
 ## Demo users
 
@@ -233,7 +275,8 @@ AI was used for implementation acceleration, refactoring suggestions, test gener
 
 ## Known limitations
 
-- Candidate and ComplianceDocument deletion and OpenAPI remain deferred.
+- Retention-safe removal is one-way through the runtime application; restoration, hard erasure, and privileged retention operations require a separately governed operational process.
+- Tenant-scoped Candidate email uniqueness includes retained inactive rows, so an email cannot be reused through the runtime API after removal.
 - Production idempotency-record retention and cleanup policy remains an operational decision.
 - Audit browsing/export, retention, and external log forwarding are not implemented.
 - Empty list pages do not create an audit row because the ledger records each returned record rather than query intent.

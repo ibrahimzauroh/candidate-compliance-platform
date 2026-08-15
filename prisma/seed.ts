@@ -5,15 +5,12 @@ import {
   TenantRole,
 } from '@prisma/client';
 import bcrypt from 'bcrypt';
+import { pathToFileURL } from 'node:url';
 
-const prisma = new PrismaClient({
-  datasourceUrl: process.env.DIRECT_DATABASE_URL,
-});
-
-const DEVELOPMENT_DEMO_PASSWORD = 'ComplianceDemo123';
+export const DEVELOPMENT_DEMO_PASSWORD = 'ComplianceDemo123';
 const BCRYPT_COST_FACTOR = 10;
 
-const SEED_IDS = {
+export const SEED_IDS = {
   tenants: {
     zauroh: '10000000-0000-4000-8000-000000000001',
     khaleel: '10000000-0000-4000-8000-000000000002',
@@ -54,7 +51,7 @@ const TENANTS = [
   { id: SEED_IDS.tenants.khaleel, name: 'Khaleel Care Staffing' },
 ] as const;
 
-const USERS = [
+export const USERS = [
   {
     id: SEED_IDS.users.admin,
     email: 'admin@iza.com',
@@ -175,7 +172,10 @@ const DOCUMENTS = [
   },
 ] as const;
 
-async function seedDevelopmentData(): Promise<void> {
+export async function seedDevelopmentData(
+  prisma: PrismaClient,
+  log: (message: string) => void = console.log,
+): Promise<void> {
   const passwordHash = await bcrypt.hash(
     DEVELOPMENT_DEMO_PASSWORD,
     BCRYPT_COST_FACTOR,
@@ -268,18 +268,26 @@ async function seedDevelopmentData(): Promise<void> {
     }
   });
 
-  console.log('Development seed complete.');
-  console.log(`Tenants: ${TENANTS.length}`);
-  console.log(`Users: ${USERS.length}`);
-  console.log(`Memberships: ${MEMBERSHIPS.length}`);
-  console.log(`Candidates: ${CANDIDATES.length}`);
-  console.log(`Documents: ${DOCUMENTS.length}`);
-  console.log(`Document versions: ${DOCUMENTS.length}`);
-  console.log(`Demo users: ${USERS.map((user) => user.email).join(', ')}`);
+  log('Development seed complete.');
+  log(`Tenants: ${TENANTS.length}`);
+  log(`Users: ${USERS.length}`);
+  log(`Memberships: ${MEMBERSHIPS.length}`);
+  log(`Candidates: ${CANDIDATES.length}`);
+  log(`Documents: ${DOCUMENTS.length}`);
+  log(`Document versions: ${DOCUMENTS.length}`);
+  log(`Demo users: ${USERS.map((user) => user.email).join(', ')}`);
 }
 
-try {
-  await seedDevelopmentData();
-} finally {
-  await prisma.$disconnect();
+const entryPoint = process.argv[1];
+
+if (entryPoint && pathToFileURL(entryPoint).href === import.meta.url) {
+  const prisma = new PrismaClient({
+    datasourceUrl: process.env.DIRECT_DATABASE_URL,
+  });
+
+  try {
+    await seedDevelopmentData(prisma);
+  } finally {
+    await prisma.$disconnect();
+  }
 }

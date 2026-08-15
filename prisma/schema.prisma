@@ -123,6 +123,7 @@ model Candidate {
   fullName       String               @map("full_name")
   email          String               @db.Citext
   roleAppliedFor String               @map("role_applied_for")
+  removedAt      DateTime?            @map("removed_at")
   createdAt      DateTime             @default(now()) @map("created_at")
   updatedAt      DateTime             @updatedAt @map("updated_at")
   tenant         Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
@@ -133,6 +134,7 @@ model Candidate {
   @@unique([tenantId, email])
   @@unique([tenantId, id])
   @@index([tenantId, createdAt(sort: Desc), id])
+  @@index([tenantId, removedAt, createdAt(sort: Desc), id])
   @@map("candidates")
 }
 
@@ -142,6 +144,7 @@ model ComplianceDocument {
   candidateId      String                      @map("candidate_id") @db.Uuid
   type             ComplianceDocumentType
   currentVersionId String?                     @map("current_version_id") @db.Uuid
+  removedAt        DateTime?                   @map("removed_at")
   createdAt        DateTime                    @default(now()) @map("created_at")
   updatedAt        DateTime                    @updatedAt @map("updated_at")
   tenant           Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
@@ -152,6 +155,7 @@ model ComplianceDocument {
 
   @@unique([tenantId, id])
   @@index([tenantId, candidateId, createdAt(sort: Desc), id])
+  @@index([tenantId, removedAt, candidateId, createdAt(sort: Desc), id])
   @@map("compliance_documents")
 }
 

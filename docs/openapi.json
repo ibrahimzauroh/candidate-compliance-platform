@@ -1,0 +1,1328 @@
+{
+  "openapi": "3.1.0",
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "info": {
+    "title": "Candidate Compliance Platform API",
+    "version": "1.0.0",
+    "description": "Product-neutral REST API for tenant-scoped candidate compliance, verification, and governed CV extraction. Tenant identifiers supplied by clients are validated against the authenticated actor's memberships before domain logic runs."
+  },
+  "servers": [
+    { "url": "http://localhost:4000", "description": "Local development" }
+  ],
+  "tags": [
+    { "name": "Health" },
+    { "name": "Authentication" },
+    { "name": "Tenant context" },
+    { "name": "Candidates" },
+    { "name": "Compliance documents" },
+    { "name": "Verification" },
+    { "name": "CV extraction" }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Check API health",
+        "description": "Unversioned infrastructure health check.",
+        "tags": ["Health"],
+        "security": [],
+        "x-required-permission": null,
+        "responses": {
+          "200": {
+            "description": "The API process is healthy.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HealthResponse" }
+              }
+            }
+          },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "operationId": "login",
+        "summary": "Authenticate a platform user",
+        "description": "Validates local credentials and returns a Bearer JWT. Authentication does not select a tenant.",
+        "tags": ["Authentication"],
+        "security": [],
+        "x-required-permission": null,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LoginRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authenticated successfully.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LoginResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "operationId": "getCurrentUser",
+        "summary": "Get the authenticated platform identity",
+        "description": "Returns platform identity only; tenant selection and permissions are separate.",
+        "tags": ["Authentication"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": null,
+        "responses": {
+          "200": {
+            "description": "Authenticated user identity.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UserIdentity" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    },
+    "/api/v1/context": {
+      "get": {
+        "operationId": "getTenantContext",
+        "summary": "Resolve validated tenant context",
+        "description": "Validates X-Tenant-Id against the authenticated actor's current memberships.",
+        "tags": ["Tenant context"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": null,
+        "parameters": [{ "$ref": "#/components/parameters/TenantIdHeader" }],
+        "responses": {
+          "200": {
+            "description": "Validated tenant context.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TenantContext" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    },
+    "/api/v1/candidates": {
+      "post": {
+        "operationId": "createCandidate",
+        "summary": "Create a candidate",
+        "description": "Creates an active candidate owned by the validated tenant.",
+        "tags": ["Candidates"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": "candidate:create",
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantIdHeader" },
+          { "$ref": "#/components/parameters/IdempotencyKeyHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CandidateCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Candidate created, or the original response replayed for the same key and input.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Candidate" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      },
+      "get": {
+        "operationId": "listCandidates",
+        "summary": "List candidates",
+        "description": "Returns active candidates in deterministic order with bounded pagination and optional filters.",
+        "tags": ["Candidates"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": "candidate:read",
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantIdHeader" },
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/PageSize" },
+          { "$ref": "#/components/parameters/CandidateSearch" },
+          { "$ref": "#/components/parameters/CandidateEmail" },
+          { "$ref": "#/components/parameters/RoleAppliedFor" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated candidates.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidateListResponse"
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    },
+    "/api/v1/candidates/{candidateId}": {
+      "parameters": [{ "$ref": "#/components/parameters/CandidateId" }],
+      "get": {
+        "operationId": "getCandidate",
+        "summary": "Get a candidate",
+        "description": "Returns an active candidate visible to the validated tenant.",
+        "tags": ["Candidates"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": "candidate:read",
+        "parameters": [{ "$ref": "#/components/parameters/TenantIdHeader" }],
+        "responses": {
+          "200": {
+            "description": "Candidate found.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Candidate" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      },
+      "patch": {
+        "operationId": "updateCandidate",
+        "summary": "Update a candidate",
+        "description": "Updates at least one mutable candidate field within the validated tenant.",
+        "tags": ["Candidates"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": "candidate:update",
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantIdHeader" },
+          { "$ref": "#/components/parameters/IdempotencyKeyHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CandidateUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Candidate updated, or the stored response replayed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Candidate" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      },
+      "delete": {
+        "operationId": "removeCandidate",
+        "summary": "Remove a candidate logically",
+        "description": "Performs one-way retention-safe logical removal. The candidate is excluded from normal API operations while compliance, verification, CV extraction, and audit evidence remains retained. Exact same-key replay returns 204 without another mutation.",
+        "tags": ["Candidates"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": "candidate:remove",
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantIdHeader" },
+          { "$ref": "#/components/parameters/IdempotencyKeyHeader" }
+        ],
+        "responses": {
+          "204": {
+            "description": "Candidate removed logically. No response body."
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    },
+    "/api/v1/candidates/{candidateId}/documents": {
+      "parameters": [{ "$ref": "#/components/parameters/CandidateId" }],
+      "post": {
+        "operationId": "createComplianceDocument",
+        "summary": "Create a compliance document",
+        "description": "Creates a logical document and its first immutable-history version as DRAFT.",
+        "tags": ["Compliance documents"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": "document:create",
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantIdHeader" },
+          { "$ref": "#/components/parameters/IdempotencyKeyHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ComplianceDocumentCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Compliance document created.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ComplianceDocument" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      },
+      "get": {
+        "operationId": "listCandidateComplianceDocuments",
+        "summary": "List a candidate's compliance documents",
+        "description": "Lists active logical documents and their current versions for one active candidate.",
+        "tags": ["Compliance documents"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": "document:read",
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantIdHeader" },
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/PageSize" },
+          { "$ref": "#/components/parameters/DocumentTypeFilter" },
+          { "$ref": "#/components/parameters/DocumentStatusFilter" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated compliance documents.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComplianceDocumentListResponse"
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    },
+    "/api/v1/documents/expiring": {
+      "get": {
+        "operationId": "listExpiringComplianceDocuments",
+        "summary": "List documents expiring within 30 days",
+        "description": "Returns active logical documents whose current version expires from the current UTC date through day 30, inclusive.",
+        "tags": ["Compliance documents"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": "document:read",
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantIdHeader" },
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/PageSize" },
+          { "$ref": "#/components/parameters/DocumentTypeFilter" },
+          { "$ref": "#/components/parameters/DocumentStatusFilter" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated expiring compliance documents.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComplianceDocumentListResponse"
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    },
+    "/api/v1/documents/{documentId}": {
+      "parameters": [{ "$ref": "#/components/parameters/DocumentId" }],
+      "get": {
+        "operationId": "getComplianceDocument",
+        "summary": "Get a compliance document",
+        "description": "Returns an active logical document and its current version.",
+        "tags": ["Compliance documents"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": "document:read",
+        "parameters": [{ "$ref": "#/components/parameters/TenantIdHeader" }],
+        "responses": {
+          "200": {
+            "description": "Compliance document found.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ComplianceDocument" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      },
+      "delete": {
+        "operationId": "removeComplianceDocument",
+        "summary": "Remove a compliance document logically",
+        "description": "Performs one-way retention-safe logical removal of the stable aggregate. Versions, supersession links, verification history, and audit evidence remain retained and unchanged. Exact same-key replay returns 204 without another mutation.",
+        "tags": ["Compliance documents"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": "document:remove",
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantIdHeader" },
+          { "$ref": "#/components/parameters/IdempotencyKeyHeader" }
+        ],
+        "responses": {
+          "204": {
+            "description": "Document removed logically. No response body."
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    },
+    "/api/v1/documents/{documentId}/versions": {
+      "parameters": [{ "$ref": "#/components/parameters/DocumentId" }],
+      "post": {
+        "operationId": "createComplianceDocumentVersion",
+        "summary": "Create a document version",
+        "description": "Appends a DRAFT version and makes it current. This general operation cannot overwrite or supersede an approved current version; use correction instead.",
+        "tags": ["Compliance documents"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": "document:create",
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantIdHeader" },
+          { "$ref": "#/components/parameters/IdempotencyKeyHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ComplianceDocumentVersionCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Version created and selected as current.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ComplianceDocument" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    },
+    "/api/v1/documents/{documentId}/approve": {
+      "parameters": [{ "$ref": "#/components/parameters/DocumentId" }],
+      "post": {
+        "operationId": "approveComplianceDocument",
+        "summary": "Approve the current document version",
+        "description": "Transitions a DRAFT or PENDING_REVIEW current version to APPROVED. Exact same-key replay returns the stored response without duplicate audit. A new key targeting an already-approved current version succeeds as a semantic no-op, appends immutable approval evidence with equal before/after hashes and ALREADY_APPROVED metadata, and does not mutate document state.",
+        "tags": ["Compliance documents"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": "document:approve",
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantIdHeader" },
+          { "$ref": "#/components/parameters/IdempotencyKeyHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/EmptyRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current version approved or already approved.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ComplianceDocument" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    },
+    "/api/v1/documents/{documentId}/corrections": {
+      "parameters": [{ "$ref": "#/components/parameters/DocumentId" }],
+      "post": {
+        "operationId": "correctComplianceDocument",
+        "summary": "Correct an approved document version",
+        "description": "Creates a new DRAFT that supersedes the approved current version and becomes current. The approved version is retained unchanged as immutable history.",
+        "tags": ["Compliance documents"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": "document:correct",
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantIdHeader" },
+          { "$ref": "#/components/parameters/IdempotencyKeyHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ComplianceDocumentCorrectionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Corrected DRAFT version created and selected as current.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ComplianceDocument" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    },
+    "/api/v1/documents/{documentId}/verifications": {
+      "parameters": [{ "$ref": "#/components/parameters/DocumentId" }],
+      "post": {
+        "operationId": "requestRightToWorkVerification",
+        "summary": "Request Right-to-Work verification",
+        "description": "Atomically creates a requested verification, outbox event, audit evidence, and idempotency result for an approved current RIGHT_TO_WORK version.",
+        "tags": ["Verification"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": "verification:request",
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantIdHeader" },
+          { "$ref": "#/components/parameters/IdempotencyKeyHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/EmptyRequest" }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Verification request accepted for asynchronous processing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VerificationRequest" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    },
+    "/api/v1/verifications/{verificationRequestId}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/VerificationRequestId" }
+      ],
+      "get": {
+        "operationId": "getVerificationRequest",
+        "summary": "Get verification status",
+        "description": "Returns a tenant-visible verification request and records a sensitive-read audit event.",
+        "tags": ["Verification"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": "verification:read",
+        "parameters": [{ "$ref": "#/components/parameters/TenantIdHeader" }],
+        "responses": {
+          "200": {
+            "description": "Verification request status.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VerificationRequest" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    },
+    "/api/v1/candidates/{candidateId}/cv-extractions": {
+      "parameters": [{ "$ref": "#/components/parameters/CandidateId" }],
+      "post": {
+        "operationId": "createCvExtraction",
+        "summary": "Upload and extract a CV",
+        "description": "Accepts one raw PDF or UTF-8 text CV up to 2 MiB. Extracted text is limited to 100,000 characters and processed in memory. Raw bytes and text are not persisted. Provider output is untrusted and must pass strict validation before a PROPOSED, non-authoritative result is stored. Extraction never rejects or otherwise decides the candidate.",
+        "tags": ["CV extraction"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": "ai:extract",
+        "x-max-upload-bytes": 2097152,
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantIdHeader" },
+          { "$ref": "#/components/parameters/IdempotencyKeyHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100000,
+                "description": "Non-empty UTF-8 text; raw request size is additionally capped at 2 MiB."
+              }
+            },
+            "application/pdf": {
+              "schema": {
+                "type": "string",
+                "format": "binary",
+                "description": "PDF bytes with a valid PDF signature, capped at 2 MiB, yielding non-empty extracted text."
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Validated advisory proposal created with status PROPOSED.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CvExtraction" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "502": { "$ref": "#/components/responses/BadGateway" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    },
+    "/api/v1/cv-extractions/{extractionId}": {
+      "parameters": [{ "$ref": "#/components/parameters/ExtractionId" }],
+      "get": {
+        "operationId": "getCvExtraction",
+        "summary": "Get a CV extraction proposal",
+        "description": "Returns tenant-visible proposal and decision evidence without exposing raw CV content.",
+        "tags": ["CV extraction"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": "ai:extract",
+        "parameters": [{ "$ref": "#/components/parameters/TenantIdHeader" }],
+        "responses": {
+          "200": {
+            "description": "CV extraction evidence.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CvExtraction" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    },
+    "/api/v1/cv-extractions/{extractionId}/confirm": {
+      "parameters": [{ "$ref": "#/components/parameters/ExtractionId" }],
+      "post": {
+        "operationId": "confirmCvExtraction",
+        "summary": "Confirm or edit a CV extraction",
+        "description": "Validates the authorised recruiter's complete profile independently, retains the original proposal, stores confirmed evidence separately, and changes the proposal from PROPOSED to ACCEPTED.",
+        "tags": ["CV extraction"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": "ai:confirm",
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantIdHeader" },
+          { "$ref": "#/components/parameters/IdempotencyKeyHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CvProfile" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Proposal accepted with separately retained confirmed output.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CvExtraction" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    },
+    "/api/v1/cv-extractions/{extractionId}/reject": {
+      "parameters": [{ "$ref": "#/components/parameters/ExtractionId" }],
+      "post": {
+        "operationId": "rejectCvExtraction",
+        "summary": "Reject a CV extraction proposal",
+        "description": "Changes only the advisory proposal from PROPOSED to REJECTED. It never rejects, disables, scores, or ranks the candidate and does not create a confirmed profile.",
+        "tags": ["CV extraction"],
+        "security": [{ "bearerAuth": [] }],
+        "x-required-permission": "ai:confirm",
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantIdHeader" },
+          { "$ref": "#/components/parameters/IdempotencyKeyHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/EmptyRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Proposal rejected without changing candidate state.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CvExtraction" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "JWT returned by POST /api/v1/auth/login."
+      }
+    },
+    "parameters": {
+      "TenantIdHeader": {
+        "name": "X-Tenant-Id",
+        "in": "header",
+        "required": true,
+        "description": "Untrusted tenant selection validated against the authenticated actor's current memberships.",
+        "schema": { "$ref": "#/components/schemas/Uuid" }
+      },
+      "IdempotencyKeyHeader": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Opaque key scoped by validated tenant membership and operation. Same input replays the stored response; conflicting reuse returns 409.",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9._~:/+\\-]+$",
+          "example": "candidate-create-20260815-001"
+        }
+      },
+      "CandidateId": {
+        "name": "candidateId",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/Uuid" }
+      },
+      "DocumentId": {
+        "name": "documentId",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/Uuid" }
+      },
+      "VerificationRequestId": {
+        "name": "verificationRequestId",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/Uuid" }
+      },
+      "ExtractionId": {
+        "name": "extractionId",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/Uuid" }
+      },
+      "Page": {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000,
+          "default": 1
+        }
+      },
+      "PageSize": {
+        "name": "pageSize",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 20
+        }
+      },
+      "CandidateSearch": {
+        "name": "search",
+        "in": "query",
+        "required": false,
+        "description": "Case-insensitive partial match across supported candidate search fields.",
+        "schema": { "type": "string", "minLength": 1, "maxLength": 200 }
+      },
+      "CandidateEmail": {
+        "name": "email",
+        "in": "query",
+        "required": false,
+        "description": "Normalised exact email filter.",
+        "schema": { "type": "string", "format": "email", "maxLength": 254 }
+      },
+      "RoleAppliedFor": {
+        "name": "roleAppliedFor",
+        "in": "query",
+        "required": false,
+        "schema": { "type": "string", "minLength": 1, "maxLength": 200 }
+      },
+      "DocumentTypeFilter": {
+        "name": "type",
+        "in": "query",
+        "required": false,
+        "schema": { "$ref": "#/components/schemas/ComplianceDocumentType" }
+      },
+      "DocumentStatusFilter": {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "schema": { "$ref": "#/components/schemas/ComplianceDocumentStatus" }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Request validation, tenant selection, upload, or idempotency key failed.",
+        "content": {
+          "application/problem+json": {
+            "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Credentials or Bearer authentication are invalid.",
+        "content": {
+          "application/problem+json": {
+            "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Tenant context is unavailable or the operation-specific permission is denied.",
+        "content": {
+          "application/problem+json": {
+            "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "The resource is missing, inactive, or unavailable in the selected tenant.",
+        "content": {
+          "application/problem+json": {
+            "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "A domain invariant or idempotency-key reuse conflicts with this request.",
+        "content": {
+          "application/problem+json": {
+            "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+          }
+        }
+      },
+      "BadGateway": {
+        "description": "The CV provider failed or returned invalid untrusted output.",
+        "content": {
+          "application/problem+json": {
+            "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+          }
+        }
+      },
+      "InternalServerError": {
+        "description": "Unexpected failure without internal details.",
+        "content": {
+          "application/problem+json": {
+            "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Uuid": { "type": "string", "format": "uuid" },
+      "HealthResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status"],
+        "properties": { "status": { "type": "string", "const": "ok" } }
+      },
+      "UserIdentity": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "email", "displayName"],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/Uuid" },
+          "email": { "type": "string", "format": "email" },
+          "displayName": { "type": "string" }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["email", "password"],
+        "properties": {
+          "email": { "type": "string", "format": "email", "maxLength": 254 },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "format": "password"
+          }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["accessToken", "tokenType", "user"],
+        "properties": {
+          "accessToken": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Bearer JWT; example is intentionally not a usable token."
+          },
+          "tokenType": { "type": "string", "const": "Bearer" },
+          "user": { "$ref": "#/components/schemas/UserIdentity" }
+        }
+      },
+      "TenantRole": {
+        "type": "string",
+        "enum": ["ADMIN", "RECRUITER", "COMPLIANCE_OFFICER", "VIEWER"]
+      },
+      "TenantContext": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tenantId", "userId", "membershipId", "role"],
+        "properties": {
+          "tenantId": { "$ref": "#/components/schemas/Uuid" },
+          "userId": { "$ref": "#/components/schemas/Uuid" },
+          "membershipId": { "$ref": "#/components/schemas/Uuid" },
+          "role": { "$ref": "#/components/schemas/TenantRole" }
+        }
+      },
+      "CandidateCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["fullName", "email", "roleAppliedFor"],
+        "properties": {
+          "fullName": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "email": { "type": "string", "format": "email", "maxLength": 254 },
+          "roleAppliedFor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "CandidateUpdateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "fullName": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "email": { "type": "string", "format": "email", "maxLength": 254 },
+          "roleAppliedFor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "Candidate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "fullName",
+          "email",
+          "roleAppliedFor",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/Uuid" },
+          "fullName": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "roleAppliedFor": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "PaginationMetadata": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["page", "pageSize", "totalItems", "totalPages"],
+        "properties": {
+          "page": { "type": "integer", "minimum": 1 },
+          "pageSize": { "type": "integer", "minimum": 1 },
+          "totalItems": { "type": "integer", "minimum": 0 },
+          "totalPages": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "CandidateListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "pagination"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Candidate" }
+          },
+          "pagination": { "$ref": "#/components/schemas/PaginationMetadata" }
+        }
+      },
+      "ComplianceDocumentType": {
+        "type": "string",
+        "enum": [
+          "RIGHT_TO_WORK",
+          "BACKGROUND_CHECK",
+          "PROFESSIONAL_CERTIFICATION",
+          "OTHER"
+        ]
+      },
+      "ComplianceDocumentStatus": {
+        "type": "string",
+        "enum": ["DRAFT", "PENDING_REVIEW", "APPROVED", "REJECTED"]
+      },
+      "NullableDate": { "type": ["string", "null"], "format": "date" },
+      "ComplianceDocumentCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type"],
+        "properties": {
+          "type": { "$ref": "#/components/schemas/ComplianceDocumentType" },
+          "issueDate": { "$ref": "#/components/schemas/NullableDate" },
+          "expiryDate": { "$ref": "#/components/schemas/NullableDate" }
+        },
+        "description": "When both dates are non-null, expiryDate must not be earlier than issueDate."
+      },
+      "ComplianceDocumentVersionCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "issueDate": { "$ref": "#/components/schemas/NullableDate" },
+          "expiryDate": { "$ref": "#/components/schemas/NullableDate" }
+        },
+        "description": "Both fields are optional. When both are non-null, expiryDate must not be earlier than issueDate."
+      },
+      "ComplianceDocumentCorrectionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["issueDate", "expiryDate"],
+        "properties": {
+          "issueDate": { "$ref": "#/components/schemas/NullableDate" },
+          "expiryDate": { "$ref": "#/components/schemas/NullableDate" }
+        },
+        "description": "Complete corrected date state. When both dates are non-null, expiryDate must not be earlier than issueDate."
+      },
+      "ComplianceDocumentVersion": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "versionNumber",
+          "issueDate",
+          "expiryDate",
+          "status",
+          "createdAt"
+        ],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/Uuid" },
+          "versionNumber": { "type": "integer", "minimum": 1 },
+          "issueDate": { "$ref": "#/components/schemas/NullableDate" },
+          "expiryDate": { "$ref": "#/components/schemas/NullableDate" },
+          "status": { "$ref": "#/components/schemas/ComplianceDocumentStatus" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ComplianceDocument": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "candidateId",
+          "type",
+          "currentVersion",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/Uuid" },
+          "candidateId": { "$ref": "#/components/schemas/Uuid" },
+          "type": { "$ref": "#/components/schemas/ComplianceDocumentType" },
+          "currentVersion": {
+            "$ref": "#/components/schemas/ComplianceDocumentVersion"
+          },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ComplianceDocumentListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "pagination"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ComplianceDocument" }
+          },
+          "pagination": { "$ref": "#/components/schemas/PaginationMetadata" }
+        }
+      },
+      "EmptyRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "maxProperties": 0
+      },
+      "VerificationStatus": {
+        "type": "string",
+        "enum": ["requested", "pending", "verified", "failed"]
+      },
+      "VerificationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "documentId",
+          "documentVersionId",
+          "status",
+          "attemptCount",
+          "failureCode",
+          "requestedAt",
+          "startedAt",
+          "completedAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/Uuid" },
+          "documentId": { "$ref": "#/components/schemas/Uuid" },
+          "documentVersionId": { "$ref": "#/components/schemas/Uuid" },
+          "status": { "$ref": "#/components/schemas/VerificationStatus" },
+          "attemptCount": { "type": "integer", "minimum": 0, "maximum": 3 },
+          "failureCode": {
+            "type": ["string", "null"],
+            "pattern": "^[A-Z0-9_]{1,64}$"
+          },
+          "requestedAt": { "type": "string", "format": "date-time" },
+          "startedAt": { "type": ["string", "null"], "format": "date-time" },
+          "completedAt": { "type": ["string", "null"], "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "CvProfile": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "fullName",
+          "skills",
+          "yearsOfExperience",
+          "certifications"
+        ],
+        "properties": {
+          "fullName": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "skills": {
+            "type": "array",
+            "maxItems": 50,
+            "items": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "description": "Trimmed and case-insensitively deduplicated by the runtime."
+          },
+          "yearsOfExperience": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 80
+          },
+          "certifications": {
+            "type": "array",
+            "maxItems": 50,
+            "items": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "description": "Trimmed and case-insensitively deduplicated by the runtime."
+          }
+        }
+      },
+      "CvExtractionStatus": {
+        "type": "string",
+        "enum": ["PROPOSED", "ACCEPTED", "REJECTED"]
+      },
+      "CvExtraction": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "candidateId",
+          "purpose",
+          "provider",
+          "model",
+          "status",
+          "proposedOutput",
+          "confirmedOutput",
+          "createdAt",
+          "decidedAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/Uuid" },
+          "candidateId": { "$ref": "#/components/schemas/Uuid" },
+          "purpose": { "type": "string", "const": "CANDIDATE_PROFILE" },
+          "provider": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "model": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "status": { "$ref": "#/components/schemas/CvExtractionStatus" },
+          "proposedOutput": { "$ref": "#/components/schemas/CvProfile" },
+          "confirmedOutput": {
+            "oneOf": [
+              { "$ref": "#/components/schemas/CvProfile" },
+              { "type": "null" }
+            ],
+            "description": "Null until an authorised human confirms independently validated data."
+          },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "decidedAt": { "type": ["string", "null"], "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ProblemDetailsError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "message"],
+        "properties": {
+          "path": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      },
+      "ProblemDetails": {
+        "type": "object",
+        "required": ["type", "title", "status", "detail"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "format": "uri-reference",
+            "example": "about:blank"
+          },
+          "title": { "type": "string", "example": "Bad Request" },
+          "status": {
+            "type": "integer",
+            "minimum": 400,
+            "maximum": 599,
+            "example": 400
+          },
+          "detail": {
+            "type": "string",
+            "example": "The request data is invalid."
+          },
+          "errors": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ProblemDetailsError" }
+          }
+        }
+      }
+    }
+  }
+}

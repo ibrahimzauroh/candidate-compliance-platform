@@ -10,6 +10,7 @@ import {
   documentIdParamsSchema,
   expiringComplianceDocumentListQuerySchema,
   expiringComplianceDocumentListResponseSchema,
+  noContentResponseSchema,
   type TenantContext,
 } from '@candidate-compliance/contracts';
 import type { PrismaClient } from '@prisma/client';
@@ -30,6 +31,7 @@ import {
   getComplianceDocument,
   listCandidateComplianceDocuments,
   listExpiringComplianceDocuments,
+  removeComplianceDocument,
 } from './compliance-document.service.js';
 
 function tenantContextFrom(request: Request): TenantContext {
@@ -207,6 +209,28 @@ export function createComplianceDocumentRouter(
       response
         .status(result.status)
         .json(complianceDocumentSchema.parse(result.body));
+    },
+  );
+
+  router.delete(
+    '/documents/:documentId',
+    authenticate,
+    requireTenantContext,
+    requirePermission(PERMISSIONS.documentRemove),
+    async (request, response) => {
+      const { documentId } = documentIdParamsSchema.parse(request.params);
+      const idempotencyKey = parseIdempotencyKey(
+        request.header('idempotency-key'),
+      );
+      const result = await removeComplianceDocument(
+        prisma,
+        tenantContextFrom(request),
+        documentId,
+        idempotencyKey,
+      );
+
+      noContentResponseSchema.parse(result.body);
+      response.status(result.status).send();
     },
   );
 
