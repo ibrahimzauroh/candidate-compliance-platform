@@ -219,7 +219,15 @@ pnpm build
 
 ## OpenAPI
 
-An OpenAPI 3 document will be completed in a later phase. The current API exposes the unversioned health check plus versioned login, authenticated identity, validated tenant context, Candidate, ComplianceDocument, verification, and governed CV extraction endpoints.
+The canonical OpenAPI 3.1 specification is [docs/openapi.json](docs/openapi.json). It documents the unversioned health check and every registered versioned authentication, tenant-context, Candidate, ComplianceDocument, verification, and governed CV extraction operation.
+
+Validate the specification and its exact synchronisation with the registered Express route/method inventory using:
+
+```bash
+pnpm openapi:check
+```
+
+The check performs standards-aware OpenAPI 3.1 validation and fails for missing or nonexistent routes, incorrect methods or operation IDs, duplicate operation IDs, or missing security, tenant, idempotency, response, upload, and retention-safe deletion declarations.
 
 ## Demo users
 
@@ -235,7 +243,6 @@ AI was used for implementation acceleration, refactoring suggestions, test gener
 
 ## Known limitations
 
-- OpenAPI remains deferred.
 - Retention-safe removal is one-way through the runtime application; restoration, hard erasure, and privileged retention operations require a separately governed operational process.
 - Tenant-scoped Candidate email uniqueness includes retained inactive rows, so an email cannot be reused through the runtime API after removal.
 - Production idempotency-record retention and cleanup policy remains an operational decision.

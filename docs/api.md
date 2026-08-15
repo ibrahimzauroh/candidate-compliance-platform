@@ -1,6 +1,6 @@
 # API Reference
 
-This document describes the currently implemented Candidate, ComplianceDocument, verification, and governed CV extraction APIs. It is a concise developer reference, not a replacement for the planned OpenAPI document.
+This document is a concise developer guide to the implemented APIs. The canonical machine-readable contract is [openapi.json](openapi.json), which is validated as OpenAPI 3.1 and checked bidirectionally against the registered Express route/method inventory by `pnpm openapi:check`.
 
 ## Protected-route headers
 
@@ -648,4 +648,4 @@ The database restricts runtime updates to decision/profile columns, applies forc
 
 ## Current versioning limitations
 
-Earlier version rows are preserved and no destructive compliance-data update endpoint exists. Retention-safe `DELETE` marks only a logical aggregate inactive and does not erase evidence. The restricted runtime role can update only the explicitly granted aggregate, version, workflow, and AI columns; PostgreSQL prevents restoration, physical deletion, changes to approved rows, and unsupported approval transitions. Approval reasons/comments and a separate review-submission operation are not modelled; `PENDING_REVIEW` remains an allowed approval source for future workflows. Privileged retention/erasure operations, audit browsing/export, and OpenAPI remain deferred.
+Earlier version rows are preserved and no destructive compliance-data update endpoint exists. Retention-safe `DELETE` marks only a logical aggregate inactive and does not erase evidence. The restricted runtime role can update only the explicitly granted aggregate, version, workflow, and AI columns; PostgreSQL prevents restoration, physical deletion, changes to approved rows, and unsupported approval transitions. Approval reasons/comments and a separate review-submission operation are not modelled; `PENDING_REVIEW` remains an allowed approval source for future workflows. Privileged retention/erasure operations and audit browsing/export remain deferred.
